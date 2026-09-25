@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "spd-web",
+      "runtimeExecutable": "flutter",
+      "runtimeArgs": [
+        "run",
+        "-d", "web-server",
+        "--web-hostname", "127.0.0.1",
+        "--web-port", "5310",
+        "--dart-define=SPD_API=http://localhost:4100/api"
+      ],
+      "port": 5310
+    }
+  ]
+}

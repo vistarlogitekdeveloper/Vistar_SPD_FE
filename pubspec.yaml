@@ -1,0 +1,53 @@
+name: spd_frontend
+description: "Vistar SPD — Pre-Packing Process Automation. Supervisor console, table-member packing screen, MIS and live dashboard."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # state + routing
+  flutter_riverpod: ^3.3.1
+  go_router: ^17.3.0
+
+  # networking
+  dio: ^5.9.2
+
+  # the GRN export the Supervisor uploads (FR-1.1), and saving what comes back
+  file_picker: ^11.0.2
+  file_saver: ^0.4.0
+
+  # FR-3.2 — sending the ID label to a connected label printer
+  printing: ^5.14.3
+
+  # presentation
+  google_fonts: ^8.1.0
+  intl: ^0.20.2
+  collection: ^1.19.1
+
+  # remembers the light / dark choice between sessions
+  shared_preferences: ^2.5.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    # Brand mark, extracted from the approved prototype's embedded data URIs
+    # (Vistar_SPD_PrePacking_Prototype.html, the --sm / --sm-sm custom properties).
+    - assets/brand/
+
+    # The three typefaces, bundled rather than fetched. google_fonts finds them
+    # here by filename and never reaches fonts.gstatic.com, so the console keeps
+    # its typography on a shop-floor LAN with no route to the internet.
+    - assets/google_fonts/
