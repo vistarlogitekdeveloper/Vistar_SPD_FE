@@ -75,10 +75,6 @@ class SpdRepository {
     return GrnImportResult(_m(res));
   }
 
-  Future<Uint8List> grnErrorCsv(List<Map<String, dynamic>> errors) async {
-    final res = await api.download('/grn/errors.csv');
-    return res;
-  }
 
   /* ------------------------------------------------------------ lines --- */
 
