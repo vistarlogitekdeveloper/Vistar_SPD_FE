@@ -52,11 +52,12 @@ class LabelCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 6),
-                  Row(children: [
+                  // A Wrap, not a Row: the three captions sit on one line at the
+                  // 330px the label is designed at, and flow onto a second
+                  // rather than overflowing if `width` is set narrower.
+                  Wrap(spacing: 10, runSpacing: 4, children: [
                     _Field('INVOICE', l.invoiceNo),
-                    const SizedBox(width: 10),
                     _Field('GRN QTY', '${nf(l.grnQty)} ${l.uom}'),
-                    const SizedBox(width: 10),
                     _Field('GRN DATE', fmtD(l.grnDate)),
                   ]),
                 ]),
@@ -93,8 +94,12 @@ class _Field extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(caption, style: body(size: 9.5, color: const Color(0xFF333333))),
-          Text(value, style: body(size: 11, weight: FontWeight.w700, color: const Color(0xFF111111))),
+          Text(caption,
+              style: body(size: 9.5, color: const Color(0xFF333333)),
+              maxLines: 1, overflow: TextOverflow.ellipsis),
+          Text(value,
+              style: body(size: 11, weight: FontWeight.w700, color: const Color(0xFF111111)),
+              maxLines: 1, overflow: TextOverflow.ellipsis),
         ],
       );
 }

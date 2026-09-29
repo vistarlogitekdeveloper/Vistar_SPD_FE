@@ -95,6 +95,36 @@ flutter run -d chrome --dart-define=SPD_API=http://localhost:4100/api
 
 The backend must be running; see `../backend/README.md`.
 
+## Tests
+
+```bash
+flutter test
+```
+
+Three files, and the split between them is deliberate.
+
+`screen_render_test.dart` mounts all fourteen content screens at desktop and
+tablet widths in both themes, over a fake repository.
+
+`widget_gallery_test.dart` mounts every widget in the shared library on its own.
+It exists because of a bug a release build cannot catch: `Wordmark` reproduced
+the prototype's negative CSS margin with a negative `EdgeInsets`, which
+`RenderPadding` asserts against. Asserts are stripped from a release bundle, so
+the signed-off web build rendered it happily while `flutter run` threw on the
+splash and left the element tree inconsistent. Anything that only fails under an
+assert is invisible to a release build and to a screenshot.
+
+`widget_behaviour_test.dart` covers what mounting cannot tell you. A `GradButton`
+whose `onPressed` never reaches its gesture detector renders pixel for pixel like
+one that works, so every callback is pressed and observed. A layout that fits at
+1440px may not at 390px, so the specimens are re-mounted at tablet and phone
+widths and any `RenderFlex` overflow fails the test — that is how `LabelCard`
+was found overflowing by 34px whenever `width` was set below its default. The
+tables, modals, toasts and the print preview are opened and operated rather than
+merely constructed. Each probe was mutation-checked: unwiring `GradButton`,
+`DropZone` and the `SpdRow` drill-down, and removing `ProgressBar`'s clamp, each
+fails exactly the test that claims to cover it.
+
 ## How the prototype maps onto this
 
 The prototype is a single HTML file with its own CSS component set. Each class

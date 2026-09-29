@@ -1367,12 +1367,11 @@ class EmailPreview extends StatelessWidget {
 
 /// `.grid.gN` — responsive equal-width columns with the prototype's breakpoints.
 class ResponsiveGrid extends StatelessWidget {
-  const ResponsiveGrid({super.key, required this.children, this.columns = 3, this.spacing = 16, this.childAspect});
+  const ResponsiveGrid({super.key, required this.children, this.columns = 3, this.spacing = 16});
 
   final List<Widget> children;
   final int columns;
   final double spacing;
-  final double? childAspect;
 
   @override
   Widget build(BuildContext context) {
