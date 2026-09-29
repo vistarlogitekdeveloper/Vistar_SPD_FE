@@ -24,17 +24,36 @@ class Wordmark extends StatelessWidget {
   Widget build(BuildContext context) {
     final markW = size * 1.28;
     final markH = size * 1.39;
+
+    // The prototype tucks the mark into the letters either side of it with
+    // negative margins (`.wordmark.md i{margin:0 -3px 0 -4px}`). CSS allows
+    // that; Flutter's Padding asserts `padding.isNonNegative` and throws.
+    //
+    // The equivalent is to give the mark a slot narrower than the mark itself
+    // and let it draw past the edges: the layout advances by the reduced width
+    // while the glyph still paints at full size, which is exactly what a
+    // negative margin does.
+    final pullLeft = size * 0.11;
+    final pullRight = size * 0.08;
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Text('Vi', style: wordmark(size: size)),
-        Padding(
-          padding: EdgeInsets.only(left: -size * 0.11 + 0, right: -size * 0.08 + 0),
-          child: SizedBox(
-            width: markW,
-            height: markH,
-            child: Image.asset('assets/brand/vistar_s.png', fit: BoxFit.contain),
+        SizedBox(
+          width: markW - pullLeft - pullRight,
+          height: markH,
+          child: OverflowBox(
+            maxWidth: markW,
+            maxHeight: markH,
+            child: Image.asset(
+              'assets/brand/vistar_s.png',
+              width: markW,
+              height: markH,
+              fit: BoxFit.contain,
+              errorBuilder: (_, _, _) => const SizedBox.shrink(),
+            ),
           ),
         ),
         Text('tar', style: wordmark(size: size)),
@@ -888,6 +907,13 @@ class _RingPainter extends CustomPainter {
 
 /* -------------------------------------------------------------- tables --- */
 
+/// Wraps [child] in a [Flexible] only when the surrounding column has a bounded
+/// height to divide. Handing a flex to a shrink-wrapping column is the
+/// contradiction `RenderFlex` asserts on, and asserts are stripped from release
+/// builds — so without this the fault is invisible until someone runs the app.
+Widget _maybeFlexible(bool bounded, Widget child) =>
+    bounded ? Flexible(child: child) : child;
+
 /// One column of a [SpdTable].
 class SpdCol {
   const SpdCol(this.title, {this.right = false, this.width, this.wrap = false});
@@ -975,15 +1001,32 @@ class _SpdTableState extends State<SpdTable> {
         borderRadius: BorderRadius.circular(Brand.r),
       ),
       child: LayoutBuilder(builder: (context, c) {
-        final fits = totalW <= c.maxWidth;
-        final width = fits ? c.maxWidth : totalW;
+        // The header and every row carry this much horizontal padding, so it is
+        // not available to the columns. Sizing them against the full width
+        // instead overflows each row by exactly this much — which release
+        // builds clip in silence and only an assert ever reports.
+        const rowPadding = 32.0; // EdgeInsets.symmetric(horizontal: 16)
+        final content = (c.maxWidth - rowPadding).clamp(0.0, double.infinity);
+
+        final fits = totalW <= content;
+        final width = fits ? c.maxWidth : totalW + rowPadding;
         // When the columns fit, share the slack proportionally so the table
         // fills its card rather than leaving a gutter on the right.
-        final scale = fits && totalW > 0 ? c.maxWidth / totalW : 1.0;
+        final scale = fits && totalW > 0 ? content / totalW : 1.0;
+
+        // A table with no `maxHeight` shrink-wraps its rows and is almost always
+        // inside a page-level scroll view, so it is laid out with an unbounded
+        // height. A Column that both shrink-wraps and hands a child a flex is a
+        // contradiction the framework asserts on, so the body only takes a flex
+        // when there is a bounded height to divide.
+        final bounded = widget.maxHeight != null;
 
         final table = SizedBox(
           width: width,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: bounded ? MainAxisSize.max : MainAxisSize.min,
+            children: [
             // thead
             Container(
               decoration: BoxDecoration(
@@ -1009,10 +1052,11 @@ class _SpdTableState extends State<SpdTable> {
               ]),
             ),
             // tbody
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: widget.maxHeight == null,
-                physics: widget.maxHeight == null ? const NeverScrollableScrollPhysics() : null,
+            _maybeFlexible(
+              bounded,
+              ListView.builder(
+                shrinkWrap: !bounded,
+                physics: bounded ? null : const NeverScrollableScrollPhysics(),
                 itemCount: widget.rows.length,
                 itemBuilder: (context, i) {
                   final row = widget.rows[i];
@@ -1055,7 +1099,8 @@ class _SpdTableState extends State<SpdTable> {
                 },
               ),
             ),
-          ]),
+            ],
+          ),
         );
 
         final constrained = widget.maxHeight == null
