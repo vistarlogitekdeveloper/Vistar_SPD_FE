@@ -51,7 +51,12 @@ class HourlyScreen extends ConsumerWidget {
             SpdCol('Tables', width: 190),
             SpdCol('Exceptions', right: true, width: 106),
             SpdCol('Emailed to', width: 260, wrap: true),
-            SpdCol('', right: true, width: 130),
+            // Wide enough for the "View email" button at its natural size.
+            // Below the table's scaling width the columns stay at their
+            // declared size, so anything too tight overflows there and nowhere
+            // else — which is why this needs the button's real width, not the
+            // width it happens to get on a supervisor's monitor.
+            SpdCol('', right: true, width: 150),
           ],
           rows: [
             for (final h in page.reports)
