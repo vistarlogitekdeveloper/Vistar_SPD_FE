@@ -519,6 +519,77 @@ void main() {
           reason: 'a line that was never split must look exactly as it did before MOQ existed');
       expect(find.textContaining('GRN 270'), findsNothing);
     });
+
+    /* The QR is no longer always 25 modules square. The backend encoder picks
+       the smallest version that holds the payload, so a long part number now
+       arrives as 29 (version 3) or 33 (version 4) modules. The painter sizes
+       its cells from modules.length, so this should cost the layout nothing —
+       which is a claim worth checking rather than assuming. */
+
+    /// Finds the QR's own 62pt box, which is the only square of that size.
+    final qrBox = find.descendant(
+      of: find.byType(LabelCard),
+      matching: find.byWidgetPredicate(
+          (w) => w is SizedBox && w.width == 62 && w.height == 62),
+    );
+
+    testWidgets('a bigger QR matrix costs the layout nothing', (tester) async {
+      final cardSizes = <int, Size>{};
+      for (final n in [25, 29, 33]) {
+        await pumpIn(tester, LabelCard(preview: preview(labels: [unit(270, qrSize: n)])));
+        expectNoOverflow(tester, 'LabelCard with a ${n}×$n QR');
+        expect(tester.getSize(qrBox), const Size(62, 62),
+            reason: '$n modules should still draw into the same 62pt square');
+        cardSizes[n] = tester.getSize(find.byType(LabelCard));
+      }
+      expect(cardSizes[29], cardSizes[25], reason: 'a version-3 QR moved the label about');
+      expect(cardSizes[33], cardSizes[25], reason: 'a version-4 QR moved the label about');
+    });
+
+    testWidgets('every module lands on its own cell, at every version', (tester) async {
+      /* Driving the painter over a recording canvas, rather than comparing
+         pixels: it says exactly where each module was drawn, which is what
+         decides whether the thing scans. The pattern is a dark top-left
+         quadrant, so a painter that transposed, mirrored or mis-scaled the
+         matrix could not produce the same rectangles. */
+      for (final n in [25, 29, 33]) {
+        final half = n ~/ 2;
+        final modules = List.generate(n, (r) => List.generate(n, (c) => r < half && c < half));
+        await pumpIn(tester, LabelCard(preview: preview(labels: [
+          LabelUnit(index: 1, of: 1, qty: 270, payload: 'x', qr: modules, barcode: List.filled(60, 2)),
+        ])));
+
+        final painter = tester.widget<CustomPaint>(
+            find.descendant(of: qrBox, matching: find.byType(CustomPaint))).painter!;
+        final canvas = _RecordingCanvas();
+        painter.paint(canvas, const Size(62, 62));
+
+        final cell = 62 / n;
+        expect(canvas.rects.length, half * half,
+            reason: 'v$n: drew ${canvas.rects.length} modules, expected ${half * half}');
+
+        for (final rect in canvas.rects) {
+          final c = (rect.left / cell).round();
+          final r = (rect.top / cell).round();
+          expect(modules[r][c], isTrue, reason: 'v$n: painted a light module at $r,$c');
+          expect(rect.left, closeTo(c * cell, 0.001), reason: 'v$n: column $c is off its cell');
+          expect(rect.top, closeTo(r * cell, 0.001), reason: 'v$n: row $r is off its cell');
+        }
+
+        /* The modules overlap by a hair so antialiasing leaves no white seam
+           between them. That bleed has to stay a fraction of a cell: a flat
+           one would dilate a 33-module code half again as much as the 25-module
+           code it replaced, and a QR that prints too heavy stops scanning. */
+        final bleed = canvas.rects.first.width - cell;
+        expect(bleed, greaterThan(0), reason: 'v$n: modules would show seams');
+        expect(bleed / cell, closeTo(0.16, 0.02),
+            reason: 'v$n: modules bleed ${(bleed / cell * 100).round()}% of a cell');
+
+        // Nothing may spill out of the 62pt box, bleed included.
+        final last = canvas.rects.reduce((a, b) => a.right > b.right ? a : b);
+        expect(last.right, lessThanOrEqualTo(62.0), reason: 'v$n: the code overflows its box');
+      }
+    });
   });
 
   /* ===================================================================== */
@@ -566,6 +637,8 @@ void main() {
   });
 
   group('showPdfPreviewDialog', pdfPreviewTests);
+  group('FR-3.5 label counts', labelCountTests);
+  group('FR-3.5 print dialog', splitDialogTests);
 }
 
 /* ---- fakes ------------------------------------------------------------- */
@@ -682,5 +755,146 @@ void pdfPreviewTests() {
 
     expect(find.text('Label sheet'), findsNothing);
     expect(printed, isFalse, reason: 'backing out must not be reported as a print');
+  });
+}
+
+/* ========================================================================= */
+/* 9. FR-3.5 — the numbers the label screens quote                           */
+/* ========================================================================= */
+
+void labelCountTests() {
+  test('a line reports how many labels it prints', () {
+    expect(GrnLine(const {'id': 'L1', 'grn_qty': 350, 'label_count': 2}).labelCount, 2);
+    expect(GrnLine(const {'id': 'L1', 'grn_qty': 270, 'label_count': 1}).labelCount, 1);
+  });
+
+  test('a line from a server that does not send the count still prints one label', () {
+    // The count is what "Print sheet · N" sums. Defaulting it to 0 would tell a
+    // Supervisor the sheet is empty; defaulting to 1 matches every line that
+    // has no MOQ, which is the case the field is absent for.
+    expect(GrnLine(const {'id': 'L1', 'grn_qty': 270}).labelCount, 1);
+  });
+
+  test('the sheet total is the sum of the label counts, not the line count', () {
+    final lines = [
+      GrnLine(const {'id': 'L1', 'grn_qty': 350, 'moq': 300, 'label_count': 2}),
+      GrnLine(const {'id': 'L2', 'grn_qty': 360, 'moq': 100, 'label_count': 4}),
+      GrnLine(const {'id': 'L3', 'grn_qty': 270, 'label_count': 1}),
+    ];
+    final total = lines.fold<int>(0, (n, l) => n + l.labelCount);
+    expect(total, 7);
+    expect(total, isNot(lines.length), reason: 'counting lines would understate the sheet by 4');
+  });
+
+  test('a line carries its MOQ, and null when the export had none', () {
+    expect(GrnLine(const {'id': 'L1', 'grn_qty': 350, 'moq': 300}).moq, 300);
+    expect(GrnLine(const {'id': 'L1', 'grn_qty': 350}).moq, isNull);
+  });
+
+  test('the optional import columns reach the console (NFR-6.1)', () {
+    final cfg = SpdConfig(const {
+      'grnCols': ['Invoice No.', 'Part Number'],
+      'grnColsOptional': ['MOQ'],
+    });
+    expect(cfg.grnCols, ['Invoice No.', 'Part Number']);
+    expect(cfg.grnColsOptional, ['MOQ']);
+    // An older server that does not send the key must not crash the screen.
+    expect(SpdConfig(const {}).grnColsOptional, isEmpty);
+  });
+}
+
+/// A [Canvas] that records the rectangles drawn on it and ignores everything
+/// else, so a painter can be examined without rasterising anything.
+class _RecordingCanvas implements Canvas {
+  final List<Rect> rects = [];
+
+  @override
+  void drawRect(Rect rect, Paint paint) => rects.add(rect);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+/* ========================================================================= */
+/* 10. FR-3.5 — the print dialog, which now holds more than one label        */
+/* ========================================================================= */
+
+void splitDialogTests() {
+  LabelUnit u(num qty, int index, int of) => LabelUnit(
+        index: index, of: of, qty: qty,
+        payload: '76621-MFS|INV-77003|$qty',
+        qr: List.generate(25, (r) => List.generate(25, (c) => (r + c).isEven)),
+        barcode: List.filled(60, 2),
+      );
+
+  LabelPreview split(int packs) {
+    final labels = [for (var i = 1; i <= packs; i++) u(i == packs ? 50 : 300, i, packs)];
+    return LabelPreview(
+      line: GrnLine({
+        'id': 'L0012', 'invoice_no': 'INV-77003', 'part_no': '76621-MFS',
+        'part_desc': 'Mudflap Set (4 pc)', 'uom': 'SET', 'vendor': 'BlueVolt Harness',
+        'grn_date': '2026-09-09', 'grn_qty': 350, 'moq': 300,
+      }),
+      template: 'SPD Standard 100×60',
+      labels: labels,
+      alreadyPrinted: true,
+    );
+  }
+
+  /// The modal's content box: showSpdModal constrains it to 620 (880 when wide).
+  Widget dialogContent(LabelPreview p) => Column(children: [
+        if (p.labels.length > 1) ...[
+          AlertBox(
+            tone: AlertTone.info,
+            title: 'This line prints ${p.labels.length} labels (FR-3.5)',
+            message: 'MOQ 300 against a GRN quantity of 350 SET — '
+                '${p.labels.map((l) => l.qty).join(' + ')}.',
+          ),
+          const SizedBox(height: 14),
+        ],
+        Center(
+          child: Wrap(
+            spacing: 12, runSpacing: 12, alignment: WrapAlignment.center,
+            children: [for (final l in p.labels) LabelCard(preview: p, unit: l)],
+          ),
+        ),
+      ]);
+
+  for (final packs in [2, 4]) {
+    for (final width in [620.0, 480.0, 390.0]) {
+      testWidgets('$packs labels fit the dialog at ${width.toInt()}px', (tester) async {
+        tester.view.physicalSize = Size(width + 48, 1400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(MaterialApp(
+          theme: buildTheme(light: false),
+          home: Scaffold(body: SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: width),
+              child: dialogContent(split(packs)),
+            ),
+          )),
+        ));
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(tester.takeException(), isNull,
+            reason: '$packs labels overflowed the dialog at ${width.toInt()}px');
+      });
+    }
+  }
+
+  testWidgets('the dialog states the arithmetic it is about to commit stock to', (tester) async {
+    tester.view.physicalSize = const Size(700, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      theme: buildTheme(light: false),
+      home: Scaffold(body: SingleChildScrollView(child: dialogContent(split(2)))),
+    ));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.textContaining('prints 2 labels'), findsOneWidget);
+    expect(find.textContaining('300 + 50'), findsOneWidget);
+    expect(find.textContaining('1 of 2'), findsOneWidget);
+    expect(find.textContaining('2 of 2'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

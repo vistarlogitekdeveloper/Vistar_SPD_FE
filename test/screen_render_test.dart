@@ -51,6 +51,10 @@ void main() {
         'vendor': 'DynaFast Fasteners',
         'grn_date': '2026-09-09',
         'grn_qty': 270,
+        // FR-3.5 — a split line, so the screens render the marker and the sheet
+        // count is a label total rather than a line count.
+        'moq': 100,
+        'label_count': 3,
         'packed': packed,
         'pending': 270 - packed,
         'pouches': 12,
@@ -105,6 +109,7 @@ void main() {
     'emails': ['rajesh.menon@vistarlogitek.com', 'spd.shiftreport@vistarlogitek.com'],
     'labelTpl': 'SPD Standard 100×60',
     'grnCols': ['Invoice No.', 'Part Number', 'Part Description', 'GRN Quantity', 'UOM', 'Vendor', 'GRN Date'],
+    'grnColsOptional': ['MOQ'],
   };
 
   final user = {

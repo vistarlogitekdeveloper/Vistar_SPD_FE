@@ -283,12 +283,18 @@ class _GrnUploadScreenState extends ConsumerState<GrnUploadScreen> {
           ]),
         ),
         Panel(
-          title: 'Required columns (configurable)',
+          title: 'Import columns (configurable)',
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: [for (final c in cfg.grnCols) SpdChip(c, selected: true)],
+              children: [
+                for (final c in cfg.grnCols) SpdChip(c, selected: true),
+                // NFR-6.1 — read when the export carries them. Shown unselected
+                // so it is visible that MOQ is picked up (FR-3.5) without
+                // implying the file is rejected for omitting it.
+                for (final c in cfg.grnColsOptional) SpdChip('$c (optional)'),
+              ],
             ),
             const Hairline(),
             const AlertBox(

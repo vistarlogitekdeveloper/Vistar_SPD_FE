@@ -23,6 +23,7 @@ class _ConfigScreenState extends ConsumerState<ConfigScreen> {
   final _refresh = TextEditingController();
   final _emails = TextEditingController();
   final _grnCols = TextEditingController();
+  final _grnColsOptional = TextEditingController();
   String? _labelTpl;
   bool _loaded = false;
   bool _busy = false;
@@ -36,6 +37,7 @@ class _ConfigScreenState extends ConsumerState<ConfigScreen> {
     _refresh.dispose();
     _emails.dispose();
     _grnCols.dispose();
+    _grnColsOptional.dispose();
     super.dispose();
   }
 
@@ -46,6 +48,7 @@ class _ConfigScreenState extends ConsumerState<ConfigScreen> {
     _refresh.text = '${cfg.refresh}';
     _emails.text = cfg.emails.join(', ');
     _grnCols.text = cfg.grnCols.join(', ');
+    _grnColsOptional.text = cfg.grnColsOptional.join(', ');
     _labelTpl = _templates.contains(cfg.labelTpl) ? cfg.labelTpl : _templates.first;
     _loaded = true;
   }
@@ -59,6 +62,7 @@ class _ConfigScreenState extends ConsumerState<ConfigScreen> {
         'refresh': int.tryParse(_refresh.text) ?? 60,
         'emails': _emails.text,
         'grnCols': _grnCols.text,
+        'grnColsOptional': _grnColsOptional.text,
         'labelTpl': _labelTpl,
       });
       invalidateAll(ref);
@@ -156,10 +160,17 @@ class _ConfigScreenState extends ConsumerState<ConfigScreen> {
                   child: TextField(controller: _emails, style: body(size: 14)),
                 ),
                 Field(
-                  label: 'GRN import columns (NFR-6.1)',
+                  label: 'GRN import columns — required (NFR-6.1)',
                   hint: 'The header the SAP export is validated against. A format change is edited '
                       'here, not released in code.',
                   child: TextField(controller: _grnCols, maxLines: 2, style: body(size: 14)),
+                ),
+                Field(
+                  label: 'GRN import columns — optional (NFR-6.1)',
+                  hint: 'Read when the export carries them, ignored when it does not. MOQ is here: '
+                      'a line that has one prints a label per pack (FR-3.5), and a line without '
+                      'one prints a single label as before.',
+                  child: TextField(controller: _grnColsOptional, maxLines: 2, style: body(size: 14)),
                 ),
                 GradButton(
                   label: _busy ? 'Saving…' : 'Save configuration',

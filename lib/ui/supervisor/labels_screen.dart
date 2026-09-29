@@ -38,7 +38,9 @@ class LabelsScreen extends ConsumerWidget {
             onPressed: shiftId == null ? null : () => _saveSheet(context, ref, shiftId),
           ),
           GradButton(
-            label: 'Print sheet · ${lines.value?.lines.length ?? 0}',
+            // FR-3.5 — labels, not lines. A split line prints more than one
+            // page, and this is the number a Supervisor sizes label stock from.
+            label: 'Print sheet · ${lines.value?.lines.fold<int>(0, (n, l) => n + l.labelCount) ?? 0}',
             icon: Icons.print_outlined,
             small: true,
             onPressed: shiftId == null ? null : () => _printSheet(context, ref, shiftId),

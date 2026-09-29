@@ -66,6 +66,12 @@ class GrnLine {
   /// FR-3.5 — the pack size the line's labels are split by, when the GRN
   /// export carried one.
   num? get moq => raw['moq'] == null ? null : numOf(raw['moq']);
+
+  /// FR-3.5 — how many labels this line prints. The server derives it from the
+  /// one implementation of the split rather than the console recomputing it,
+  /// because a count that disagrees with the sheet is how label stock is
+  /// ordered short.
+  int get labelCount => raw['label_count'] == null ? 1 : intOf(raw['label_count']);
   num get packed => numOf(raw['packed']);
   num get pending => numOf(raw['pending']);
   int get pouches => intOf(raw['pouches']);
@@ -330,6 +336,7 @@ class SpdConfig {
         'emails': <String>[],
         'labelTpl': 'SPD Standard 100×60',
         'grnCols': <String>[],
+        'grnColsOptional': <String>[],
       });
 
   int get threshold => intOf(raw['threshold']);
@@ -338,6 +345,13 @@ class SpdConfig {
   String get labelTpl => '${raw['labelTpl'] ?? ''}';
   List<String> get emails => (raw['emails'] as List?)?.map((e) => '$e').toList() ?? const [];
   List<String> get grnCols => (raw['grnCols'] as List?)?.map((e) => '$e').toList() ?? const [];
+
+  /// NFR-6.1 — columns read when the export carries them and ignored when it
+  /// does not, MOQ being the first of them (FR-3.5). Held separately from
+  /// [grnCols] because a required MOQ would reject every export produced
+  /// before the split rule existed.
+  List<String> get grnColsOptional =>
+      (raw['grnColsOptional'] as List?)?.map((e) => '$e').toList() ?? const [];
 }
 
 /// The live warning the pack screen shows as a quantity is typed (FR-7.2).
