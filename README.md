@@ -52,7 +52,7 @@ rather than failing silently.
 | Live Dashboard | `/dashboard` | FR-11 |
 | GRN Upload & import history | `/grn` | FR-1 |
 | Invoice / Part Lines | `/lines` | FR-2 |
-| ID Labels | `/labels` | FR-3 |
+| ID Labels | `/labels` | FR-3 — one card per label, so an MOQ-split line shows each pack (FR-3.5) |
 | Table Allocation & status board | `/allocation` | FR-4 |
 | Review, exceptions & final submission | `/review` | FR-9, FR-10.1 |
 | Hourly Reports | `/hourly` | FR-8 |

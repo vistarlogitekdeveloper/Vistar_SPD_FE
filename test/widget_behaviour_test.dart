@@ -446,16 +446,22 @@ void main() {
   /* ===================================================================== */
 
   group('LabelCard', () {
-    LabelPreview preview({int qrSize = 25}) => LabelPreview(
-          line: GrnLine(const {
-            'id': 'L001', 'invoice_no': 'INV-77001', 'part_no': '90210-ABX',
-            'part_desc': 'Front Bumper Bracket LH', 'uom': 'NOS',
-            'vendor': 'DynaFast Fasteners', 'grn_date': '2026-09-09', 'grn_qty': 270,
-          }),
-          template: 'SPD Standard 100×60',
-          payload: '90210-ABX|INV-77001|270',
+    LabelUnit unit(num qty, {int index = 1, int of = 1, int qrSize = 25}) => LabelUnit(
+          index: index, of: of, qty: qty,
+          payload: '90210-ABX|INV-77001|$qty',
           qr: List.generate(qrSize, (r) => List.generate(qrSize, (c) => (r + c).isEven)),
           barcode: List.filled(60, 2),
+        );
+
+    LabelPreview preview({List<LabelUnit>? labels, num grnQty = 270, num? moq}) => LabelPreview(
+          line: GrnLine({
+            'id': 'L001', 'invoice_no': 'INV-77001', 'part_no': '90210-ABX',
+            'part_desc': 'Front Bumper Bracket LH', 'uom': 'NOS',
+            'vendor': 'DynaFast Fasteners', 'grn_date': '2026-09-09',
+            'grn_qty': grnQty, 'moq': moq,
+          }),
+          template: 'SPD Standard 100×60',
+          labels: labels ?? [unit(grnQty)],
           alreadyPrinted: false,
         );
 
@@ -476,11 +482,42 @@ void main() {
     testWidgets('survives an empty QR and barcode rather than blanking the screen', (tester) async {
       // The server is the only source of these; a failed preview must degrade.
       await pumpIn(tester, LabelCard(preview: LabelPreview(
-        line: preview().line, template: 'x', payload: 'x',
-        qr: const [], barcode: const [], alreadyPrinted: false,
+        line: preview().line, template: 'x',
+        labels: [LabelUnit(index: 1, of: 1, qty: 270, payload: 'x', qr: const [], barcode: const [])],
+        alreadyPrinted: false,
       )));
       expectNoOverflow(tester, 'LabelCard with no codes');
       expect(find.textContaining('90210-ABX'), findsWidgets);
+    });
+
+    testWidgets('survives a preview carrying no labels at all', (tester) async {
+      await pumpIn(tester, LabelCard(preview: LabelPreview(
+        line: preview().line, template: 'x', labels: const [], alreadyPrinted: false)));
+      expectNoOverflow(tester, 'LabelCard with no labels');
+      expect(find.textContaining('90210-ABX'), findsWidgets);
+    });
+
+    /* FR-3.5 — the split. */
+
+    testWidgets('a split label shows its own quantity, not the line total', (tester) async {
+      // MOQ 300 against a GRN quantity of 350: the second label holds 50, and a
+      // label that showed 350 would have someone pack the wrong pouch.
+      await pumpIn(tester, LabelCard(
+        preview: preview(grnQty: 350, moq: 300, labels: [unit(300, index: 1, of: 2), unit(50, index: 2, of: 2)]),
+        unit: unit(50, index: 2, of: 2),
+      ));
+      expectNoOverflow(tester, 'split LabelCard');
+      expect(find.textContaining('50'), findsWidgets);
+      expect(find.textContaining('2 of 2'), findsOneWidget);
+      // FR-3.1 still wants the GRN quantity present, alongside the pack's share.
+      expect(find.textContaining('GRN 350'), findsOneWidget);
+    });
+
+    testWidgets('an unsplit label shows no marker', (tester) async {
+      await pumpIn(tester, LabelCard(preview: preview()));
+      expect(find.textContaining('1 of 1'), findsNothing,
+          reason: 'a line that was never split must look exactly as it did before MOQ existed');
+      expect(find.textContaining('GRN 270'), findsNothing);
     });
   });
 

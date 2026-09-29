@@ -62,6 +62,10 @@ class GrnLine {
   String get vendor => '${raw['vendor'] ?? ''}';
   String get grnDate => '${raw['grn_date'] ?? ''}';
   num get grnQty => numOf(raw['grn_qty']);
+
+  /// FR-3.5 — the pack size the line's labels are split by, when the GRN
+  /// export carried one.
+  num? get moq => raw['moq'] == null ? null : numOf(raw['moq']);
   num get packed => numOf(raw['packed']);
   num get pending => numOf(raw['pending']);
   int get pouches => intOf(raw['pouches']);

@@ -11,14 +11,20 @@ import '../../data/repository.dart';
 /// same code that draws the PDF — so what a supervisor approves on screen is
 /// what the printer produces, rather than two implementations that agree today.
 class LabelCard extends StatelessWidget {
-  const LabelCard({super.key, required this.preview, this.width = 330});
+  const LabelCard({super.key, required this.preview, this.unit, this.width = 330});
 
   final LabelPreview preview;
+
+  /// FR-3.5 — which of the line's labels to draw. Defaults to the first, which
+  /// is the only one for a line without an MOQ.
+  final LabelUnit? unit;
+
   final double width;
 
   @override
   Widget build(BuildContext context) {
     final l = preview.line;
+    final u = unit ?? (preview.labels.isEmpty ? null : preview.first);
     return Container(
       width: width,
       clipBehavior: Clip.antiAlias,
@@ -57,13 +63,23 @@ class LabelCard extends StatelessWidget {
                   // rather than overflowing if `width` is set narrower.
                   Wrap(spacing: 10, runSpacing: 4, children: [
                     _Field('INVOICE', l.invoiceNo),
-                    _Field('GRN QTY', '${nf(l.grnQty)} ${l.uom}'),
+                    // This pack's own quantity, which is the whole GRN quantity
+                    // unless the line was split by MOQ.
+                    _Field('QTY', '${nf(u?.qty ?? l.grnQty)} ${l.uom}'),
                     _Field('GRN DATE', fmtD(l.grnDate)),
                   ]),
+                  // FR-3.1 still wants the GRN quantity on the label, so when
+                  // QTY is only this pack's share, both numbers are printed.
+                  if (u != null && u.isSplit) ...[
+                    const SizedBox(height: 4),
+                    Text('${u.marker}  ·  GRN ${nf(l.grnQty)} ${l.uom}',
+                        style: body(size: 10, weight: FontWeight.w800, color: const Color(0xFF14091F)),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ],
                 ]),
               ),
               const SizedBox(width: 10),
-              _Qr(modules: preview.qr, size: 62),
+              _Qr(modules: u?.qr ?? const [], size: 62),
             ]),
             const SizedBox(height: 6),
             Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
@@ -76,7 +92,7 @@ class LabelCard extends StatelessWidget {
               Text('SPD PRE-PACK', style: body(size: 11, color: const Color(0xFF555555))),
             ]),
             const SizedBox(height: 6),
-            SizedBox(height: 26, child: _Barcode(widths: preview.barcode)),
+            SizedBox(height: 26, child: _Barcode(widths: u?.barcode ?? const [])),
           ]),
         ),
       ]),

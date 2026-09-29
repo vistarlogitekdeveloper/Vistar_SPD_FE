@@ -120,9 +120,17 @@ class SpdRepository {
     return LabelPreview(
       line: GrnLine(_m(res['line'])),
       template: '${res['template']}',
-      payload: '${res['payload']}',
-      qr: (res['qr'] as List).map((row) => (row as List).map((c) => c == 1).toList()).toList(),
-      barcode: (res['barcode'] as List).map((e) => (e as num).toInt()).toList(),
+      labels: [
+        for (final l in (res['labels'] as List? ?? const []))
+          LabelUnit(
+            index: (l['index'] as num?)?.toInt() ?? 1,
+            of: (l['of'] as num?)?.toInt() ?? 1,
+            qty: (l['qty'] as num?) ?? 0,
+            payload: '${l['payload']}',
+            qr: (l['qr'] as List).map((row) => (row as List).map((c) => c == 1).toList()).toList(),
+            barcode: (l['barcode'] as List).map((e) => (e as num).toInt()).toList(),
+          ),
+      ],
       alreadyPrinted: res['alreadyPrinted'] == true,
     );
   }
@@ -377,21 +385,42 @@ class LineDetail {
   final List<Allocation> allocations;
 }
 
+/// FR-3.5 — one printed label. A line with an MOQ of 300 and a GRN quantity of
+/// 350 yields two of these, 300 and 50, each with its own quantity and QR.
+class LabelUnit {
+  LabelUnit({
+    required this.index,
+    required this.of,
+    required this.qty,
+    required this.payload,
+    required this.qr,
+    required this.barcode,
+  });
+  final int index;
+  final int of;
+  final num qty;
+  final String payload;
+  final List<List<bool>> qr;
+  final List<int> barcode;
+
+  bool get isSplit => of > 1;
+  String get marker => '$index of $of';
+}
+
 class LabelPreview {
   LabelPreview({
     required this.line,
     required this.template,
-    required this.payload,
-    required this.qr,
-    required this.barcode,
+    required this.labels,
     required this.alreadyPrinted,
   });
   final GrnLine line;
   final String template;
-  final String payload;
-  final List<List<bool>> qr;
-  final List<int> barcode;
+  final List<LabelUnit> labels;
   final bool alreadyPrinted;
+
+  /// The first label, for the callers that only ever show one.
+  LabelUnit get first => labels.first;
 }
 
 class MemberQueue {

@@ -172,7 +172,15 @@ class _LabelTile extends ConsumerWidget {
                 decoration: BoxDecoration(color: Brand.surface2, borderRadius: BorderRadius.circular(6)),
               );
             }
-            return LabelCard(preview: snap.data!);
+            // FR-3.5 — a line with an MOQ prints one label per pack, so the
+            // preview shows all of them rather than only the first.
+            final p = snap.data!;
+            return Column(children: [
+              for (final u in p.labels) ...[
+                LabelCard(preview: p, unit: u),
+                if (u != p.labels.last) const SizedBox(height: 10),
+              ],
+            ]);
           },
         ),
       ]),
@@ -204,7 +212,24 @@ Future<void> showLabelDialog(BuildContext context, WidgetRef ref, String lineId)
     title: preview.alreadyPrinted ? 'Reprint ID label' : 'Print ID label',
     subtitle: '${preview.line.partNo} · ${preview.line.invoiceNo} · sent to ${preview.template}',
     content: (context, setModalState) => Column(children: [
-      Center(child: LabelCard(preview: preview)),
+      if (preview.labels.length > 1) ...[
+        AlertBox(
+          tone: AlertTone.info,
+          title: 'This line prints ${preview.labels.length} labels (FR-3.5)',
+          message: 'MOQ ${nf(preview.line.moq ?? 0)} against a GRN quantity of '
+              '${nf(preview.line.grnQty)} ${preview.line.uom} — '
+              '${preview.labels.map((u) => nf(u.qty)).join(' + ')}.',
+        ),
+        const SizedBox(height: 14),
+      ],
+      Center(
+        child: Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          alignment: WrapAlignment.center,
+          children: [for (final u in preview.labels) LabelCard(preview: preview, unit: u)],
+        ),
+      ),
       if (preview.alreadyPrinted) ...[
         const SizedBox(height: 18),
         Field(
