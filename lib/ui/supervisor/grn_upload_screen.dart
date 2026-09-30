@@ -335,6 +335,7 @@ class _GrnUploadScreenState extends ConsumerState<GrnUploadScreen> {
             SpdCol('Rows', right: true, width: 80),
             SpdCol('Rejected', right: true, width: 92),
             SpdCol('Status', width: 120),
+            SpdCol('', right: true, width: 110),
           ],
           rows: [
             for (final b in list)
@@ -347,11 +348,52 @@ class _GrnUploadScreenState extends ConsumerState<GrnUploadScreen> {
                 monoCell('${b.rowCount}'),
                 monoCell('${b.rejectedCount}', color: b.rejectedCount > 0 ? Brand.warn : null),
                 Pill(b.status, tone: b.status == 'Imported' ? PillTone.ok : PillTone.neutral),
+                // FR-1.6 — the wrong file uploaded is corrected by discarding
+                // the batch. The server refuses once anything has been packed
+                // against it, so this only ever removes work nobody has begun.
+                GhostButton(
+                  label: 'Discard',
+                  danger: true,
+                  onPressed: () => _discardBatch(context, ref, b),
+                ),
               ]),
           ],
           emptyMessage: 'No GRN report has been imported yet.',
         ),
       ),
     ]);
+  }
+}
+
+/// FR-1.6 — discards a mis-imported GRN batch and everything it brought in.
+///
+/// Confirmed first, because it takes the whole upload away. The refusal case —
+/// anything already packed against it — is the server's to decide and arrives
+/// as the message it gives.
+Future<void> _discardBatch(BuildContext context, WidgetRef ref, GrnBatch b) async {
+  final ok = await showSpdModal<bool>(
+        context,
+        title: 'Discard GRN batch',
+        subtitle: '${b.id} · ${b.fileName}',
+        content: (context, _) => AlertBox(
+          tone: AlertTone.warn,
+          title: '${b.rowCount} imported line${b.rowCount == 1 ? '' : 's'} will be removed',
+          message: 'Use this when the wrong file was uploaded. If any of these lines have '
+              'been packed against, the server will refuse and the batch stays.',
+        ),
+        actions: (context, _) => [
+          GhostButton(label: 'Cancel', onPressed: () => Navigator.pop(context, false)),
+          GradButton(label: 'Discard', onPressed: () => Navigator.pop(context, true)),
+        ],
+      ) ??
+      false;
+  if (!ok || !context.mounted) return;
+
+  try {
+    await ref.read(repositoryProvider).deleteGrnBatch(b.id);
+    invalidateAll(ref);
+    if (context.mounted) Toast.ok(context, 'Batch discarded', '${b.id} and its lines are gone.');
+  } on ApiException catch (e) {
+    if (context.mounted) Toast.bad(context, 'Could not discard the batch', e.message);
   }
 }

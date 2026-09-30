@@ -101,10 +101,19 @@ The backend must be running; see `../backend/README.md`.
 flutter test
 ```
 
-Four files, and the split between them is deliberate.
+Five files, and the split between them is deliberate.
 
 `screen_render_test.dart` mounts all fourteen content screens at desktop and
 tablet widths in both themes, over a fake repository that always succeeds.
+
+`contract_test.dart` signs in against a running API and checks that the fields
+the seeded shift guarantees actually arrive. Every model getter reads a raw map
+with a fallback — `raw['part_no'] ?? ''`, `numOf(raw['grn_qty'])` — which is
+what keeps the console from throwing on a partial response, and also what makes
+a renamed server field completely silent: the cell renders empty, the quantity
+renders zero, and nothing says why. No other test catches it, because every
+fixture in the suite is written to match the getters. It skips itself, visibly,
+when there is no server to talk to.
 
 `screen_states_test.dart` covers the two states that one never reaches. A screen
 has three, and the other two are the ones nobody looks at, because the API is up

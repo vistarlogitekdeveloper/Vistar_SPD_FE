@@ -48,10 +48,31 @@ class SpdRepository {
 
   Future<List<Shift>> shifts() async => _list((await api.get('/shifts'))['shifts'], Shift.new);
 
+  /// Starts a new shift. Every data provider is scoped to one, so without this
+  /// the console can only ever work on shifts that already exist — which, after
+  /// the seeded pair, means it cannot be used on a new day at all.
+  Future<Shift> createShift({
+    required String id,
+    required String label,
+    required String shiftDate,
+  }) async {
+    final res = await api.post('/shifts', body: {
+      'id': id,
+      'label': label,
+      'shiftDate': shiftDate,
+    });
+    return Shift(_m(res['shift']));
+  }
+
   /* -------------------------------------------------------------- GRN --- */
 
   Future<List<GrnBatch>> grnBatches({String? shiftId}) async =>
       _list((await api.get('/grn/batches', query: {'shiftId': shiftId}))['batches'], GrnBatch.new);
+
+  /// FR-1.6 — discards a mis-imported batch. The server refuses once anything
+  /// has been packed against it, so this is only ever the correction of an
+  /// upload nobody has worked from yet.
+  Future<void> deleteGrnBatch(String id) => api.delete('/grn/batches/$id');
 
   /// FR-1.1. Returns the import outcome including the row/column errors of
   /// FR-1.3; a BR-08 duplicate surfaces as an [ApiException] with
@@ -170,6 +191,15 @@ class SpdRepository {
       });
 
   Future<void> withdrawAllocation(String id) => api.delete('/allocations/$id');
+
+  /// Adds a packing table to the master (FR-13.1). Allocation can only offer
+  /// the tables that exist, so a floor that gained a bench had no way to say so.
+  Future<void> createTable({required String tableNo, String? memberId, int sortOrder = 0}) =>
+      api.post('/tables', body: {
+        'tableNo': tableNo,
+        'memberId': memberId,
+        'sortOrder': sortOrder,
+      });
 
   Future<void> assignTableMember({required String tableNo, String? memberId}) =>
       api.patch('/tables/$tableNo', body: {'memberId': memberId});

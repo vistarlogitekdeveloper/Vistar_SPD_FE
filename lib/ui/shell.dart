@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../app.dart';
+import '../core/api.dart';
 import '../core/format.dart';
 import '../core/theme.dart';
 import '../data/providers.dart';
@@ -446,6 +447,19 @@ class _TopBar extends ConsumerWidget {
               },
             ),
           ),
+
+        // Every screen is scoped to a shift, and until now the only shifts that
+        // could exist were the ones the seed wrote — so on a new day the
+        // console had nothing to select. The server has always had the route.
+        if (user?.role == 'Supervisor' || user?.role == 'Administrator') ...[
+          const SizedBox(width: 6),
+          IconTile(
+            icon: Icons.add_rounded,
+            size: 32,
+            tooltip: 'Start a new shift',
+            onTap: () => _showNewShift(context, ref),
+          ),
+        ],
         const SizedBox(width: 10),
 
         // .netpill — FR-11.4 auto-refresh, on a toggle
@@ -497,9 +511,13 @@ class _TopBar extends ConsumerWidget {
           const SizedBox(width: 10),
         ],
 
+        // The dot used to be hardcoded true, so the bell always claimed there
+        // was something waiting and a Supervisor learned to ignore it. It now
+        // reads the provider — which nothing had been consuming, because this
+        // dialog fetched the list on its own each time it opened.
         IconTile(
           icon: Icons.notifications_none_rounded,
-          dot: true,
+          dot: ref.watch(notificationsProvider).value?.isNotEmpty ?? false,
           tooltip: 'Notifications',
           onTap: () => _showNotifications(context, ref),
         ),
@@ -546,10 +564,92 @@ class _TopBar extends ConsumerWidget {
     );
   }
 
+  /// Starts a new shift and selects it.
+  ///
+  /// The id is what the GRN batch numbering and the MIS snapshot names are
+  /// built from, so it is derived from the date rather than typed: `A-2026-09-30`
+  /// for the A shift of the 30th, matching what the seed writes.
+  Future<void> _showNewShift(BuildContext context, WidgetRef ref) async {
+    final now = DateTime.now();
+    var date = DateTime(now.year, now.month, now.day);
+    var name = 'Shift A';
+    String idFor() => '${name.replaceAll(RegExp(r'[^A-Za-z0-9]'), '')}-'
+        '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    String labelFor() => '$name · ${fmtD(date.toIso8601String().substring(0, 10))}';
+
+    final existing = ref.read(shiftsProvider).value ?? const <Shift>[];
+
+    await showSpdModal<void>(
+      context,
+      title: 'Start a new shift',
+      subtitle: 'Every screen is scoped to the selected shift',
+      content: (context, setModalState) => Column(children: [
+        Field(
+          label: 'Shift name',
+          child: SpdDropdown<String>(
+            value: name,
+            items: const [
+              DropdownMenuItem(value: 'Shift A', child: Text('Shift A')),
+              DropdownMenuItem(value: 'Shift B', child: Text('Shift B')),
+              DropdownMenuItem(value: 'Shift C', child: Text('Shift C')),
+            ],
+            onChanged: (v) => setModalState(() => name = v ?? name),
+          ),
+        ),
+        Field(
+          label: 'Shift date',
+          child: GhostButton(
+            label: fmtD(date.toIso8601String().substring(0, 10)),
+            icon: Icons.event_rounded,
+            small: false,
+            onPressed: () async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: date,
+                firstDate: DateTime(now.year - 1),
+                lastDate: DateTime(now.year + 1),
+              );
+              if (picked != null) setModalState(() => date = picked);
+            },
+          ),
+        ),
+        AlertBox(
+          tone: existing.any((s) => s.id == idFor()) ? AlertTone.bad : AlertTone.info,
+          title: existing.any((s) => s.id == idFor())
+              ? '${idFor()} already exists'
+              : 'Will be created as ${idFor()}',
+          message: labelFor(),
+        ),
+      ]),
+      actions: (context, _) => [
+        GhostButton(label: 'Cancel', onPressed: () => Navigator.pop(context)),
+        GradButton(
+          label: 'Create shift',
+          icon: Icons.check_rounded,
+          onPressed: () async {
+            try {
+              final shift = await ref.read(repositoryProvider).createShift(
+                    id: idFor(),
+                    label: labelFor(),
+                    shiftDate: date.toIso8601String().substring(0, 10),
+                  );
+              ref.read(shiftIdProvider.notifier).set(shift.id);
+              invalidateAll(ref);
+              if (context.mounted) Navigator.pop(context);
+              if (context.mounted) {
+                Toast.ok(context, 'Shift created', '${shift.label} is now the selected shift.');
+              }
+            } on ApiException catch (e) {
+              if (context.mounted) Toast.bad(context, 'Could not create the shift', e.message);
+            }
+          },
+        ),
+      ],
+    );
+  }
+
   Future<void> _showNotifications(BuildContext context, WidgetRef ref) async {
-    final shiftId = ref.read(selectedShiftProvider);
-    if (shiftId == null) return;
-    final notes = await ref.read(repositoryProvider).notifications(shiftId);
+    final notes = await ref.read(notificationsProvider.future);
     final shift = ref.read(currentShiftProvider);
     if (!context.mounted) return;
     await showSpdModal<void>(

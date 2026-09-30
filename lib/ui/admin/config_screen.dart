@@ -102,6 +102,14 @@ class _ConfigScreenState extends ConsumerState<ConfigScreen> {
           ResponsiveGrid(columns: 2, children: [
             Panel(
               title: 'Packing tables (Table Master)',
+              // FR-13.1 — allocation can only offer the tables that exist, and
+              // until now the only ones that could were the eight the seed
+              // wrote. The server has always had the route.
+              trailing: GhostButton(
+                label: 'Add table',
+                icon: Icons.add_rounded,
+                onPressed: () => _showAddTable(context, ref),
+              ),
               child: tables.when(
                 skipLoadingOnReload: true,
                 loading: () => const SpdLoader(size: 36),
@@ -264,4 +272,79 @@ class _NumField extends StatelessWidget {
           Expanded(child: Text(suffix, style: body(size: 13, color: Brand.txt3))),
         ]),
       );
+}
+
+/// FR-13.1 — adds a packing table to the master.
+///
+/// The number is what allocation, the status board and every member's queue key
+/// off, so it follows the seeded convention (T-01, T-02…) rather than being
+/// free text. The member is optional: a bench can exist before anyone is put on
+/// it, which is how a new table is usually added.
+Future<void> _showAddTable(BuildContext context, WidgetRef ref) async {
+  final existing = ref.read(tablesProvider).value ?? const <TableStat>[];
+  final members = (ref.read(usersProvider).value ?? const <SpdUser>[])
+      .where((u) => u.role == 'Member')
+      .toList();
+
+  // The next free number in the series, so the common case needs no typing.
+  var n = existing.length + 1;
+  while (existing.any((t) => t.tableNo == 'T-${n.toString().padLeft(2, '0')}')) {
+    n++;
+  }
+  final controller = TextEditingController(text: 'T-${n.toString().padLeft(2, '0')}');
+  String? memberId;
+
+  await showSpdModal<void>(
+    context,
+    title: 'Add a packing table',
+    subtitle: '${existing.length} table(s) on the floor today',
+    content: (context, setModalState) => Column(children: [
+      Field(
+        label: 'Table number',
+        required: true,
+        hint: 'Used by allocation, the status board and every member queue.',
+        child: TextField(controller: controller, style: body(size: 14)),
+      ),
+      Field(
+        label: 'Assigned member',
+        hint: 'Optional — a table can exist before anyone is put on it.',
+        bottom: 0,
+        child: SpdDropdown<String>(
+          value: memberId,
+          items: [
+            const DropdownMenuItem(value: null, child: Text('Unassigned')),
+            for (final m in members)
+              DropdownMenuItem(value: m.id, child: Text('${m.name} · ${m.empCode}')),
+          ],
+          onChanged: (v) => setModalState(() => memberId = v),
+        ),
+      ),
+    ]),
+    actions: (context, _) => [
+      GhostButton(label: 'Cancel', onPressed: () => Navigator.pop(context)),
+      GradButton(
+        label: 'Add table',
+        icon: Icons.check_rounded,
+        onPressed: () async {
+          final tableNo = controller.text.trim();
+          if (tableNo.isEmpty) {
+            Toast.bad(context, 'Table not added', 'A table needs a number.');
+            return;
+          }
+          try {
+            await ref.read(repositoryProvider).createTable(
+                  tableNo: tableNo,
+                  memberId: memberId,
+                  sortOrder: existing.length,
+                );
+            invalidateAll(ref);
+            if (context.mounted) Navigator.pop(context);
+            if (context.mounted) Toast.ok(context, 'Table added', '$tableNo is on the floor.');
+          } on ApiException catch (e) {
+            if (context.mounted) Toast.bad(context, 'Could not add the table', e.message);
+          }
+        },
+      ),
+    ],
+  );
 }
