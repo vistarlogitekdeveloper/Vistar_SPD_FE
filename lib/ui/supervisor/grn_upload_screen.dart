@@ -322,6 +322,7 @@ class _GrnUploadScreenState extends ConsumerState<GrnUploadScreen> {
       const SizedBox(height: 18),
       const SectionTitle('Import history (FR-1.6)'),
       batches.when(
+        skipLoadingOnReload: true,
         loading: () => const SpdLoader(size: 40),
         error: (e, _) => ErrorPanel(message: '$e', onRetry: () => invalidateAll(ref)),
         data: (list) => SpdTable(

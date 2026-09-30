@@ -522,9 +522,10 @@ void main() {
 
     /* The QR is no longer always 25 modules square. The backend encoder picks
        the smallest version that holds the payload, so a long part number now
-       arrives as 29 (version 3) or 33 (version 4) modules. The painter sizes
-       its cells from modules.length, so this should cost the layout nothing —
-       which is a claim worth checking rather than assuming. */
+       arrives as 29 or 33 modules — versions 3 and 4, where it stops, because a
+       denser code does not print reliably at 56pt. The painter sizes its cells
+       from modules.length, so this should cost the layout nothing, which is a
+       claim worth checking rather than assuming. */
 
     /// Finds the QR's own 62pt box, which is the only square of that size.
     final qrBox = find.descendant(
@@ -537,24 +538,66 @@ void main() {
       final cardSizes = <int, Size>{};
       for (final n in [25, 29, 33]) {
         await pumpIn(tester, LabelCard(preview: preview(labels: [unit(270, qrSize: n)])));
-        expectNoOverflow(tester, 'LabelCard with a ${n}×$n QR');
+        expectNoOverflow(tester, 'LabelCard with a $n×$n QR');
         expect(tester.getSize(qrBox), const Size(62, 62),
             reason: '$n modules should still draw into the same 62pt square');
         cardSizes[n] = tester.getSize(find.byType(LabelCard));
       }
-      expect(cardSizes[29], cardSizes[25], reason: 'a version-3 QR moved the label about');
-      expect(cardSizes[33], cardSizes[25], reason: 'a version-4 QR moved the label about');
+      for (final n in [29, 33]) {
+        expect(cardSizes[n], cardSizes[25], reason: 'a $n-module QR moved the label about');
+      }
+    });
+
+    testWidgets('the split marker stays out of the QR’s quiet zone', (tester) async {
+      /* A scanner finds a code by the band of white around it — four modules on
+         every side — and the split marker is the one thing on the label set
+         anywhere near it. The PDF puts the marker in the column directly under
+         the code and holds it four modules below the bottom edge; on screen it
+         is in the left-hand column instead, clear of the code sideways rather
+         than beneath it. Same rule, different route, so it is measured rather
+         than assumed: the gutter between the two columns is a fixed 10pt, and
+         four modules of a 25-module code is 9.92 of them. */
+      for (final n in [25, 29, 33]) {
+        await pumpIn(tester, LabelCard(
+          preview: preview(grnQty: 350, moq: 300, labels: [
+            unit(300, index: 1, of: 2, qrSize: n),
+            unit(50, index: 2, of: 2, qrSize: n),
+          ]),
+          unit: unit(50, index: 2, of: 2, qrSize: n),
+        ));
+        expectNoOverflow(tester, 'split LabelCard with a $n×$n QR');
+
+        final quiet = tester.getRect(qrBox).inflate(4 * (62 / n));
+        final marker = find.textContaining('GRN 350');
+        expect(tester.getRect(marker).overlaps(quiet), isFalse,
+            reason: 'v$n: the marker ${tester.getRect(marker)} is in the quiet zone $quiet');
+
+        /* Where this string happens to end is not the guarantee, though: it is
+           one line with an ellipsis, so a longer marker grows to fill the
+           column and stops there. The column is what has to clear the code —
+           and the same goes for the part number and the fields above it, which
+           clip at the same edge. */
+        final column = tester.getRect(
+            find.ancestor(of: marker, matching: find.byType(Column)).first);
+        expect(column.contains(tester.getRect(marker).centerLeft), isTrue,
+            reason: 'v$n: that is not the column the marker sits in');
+        expect(column.overlaps(quiet), isFalse,
+            reason: 'v$n: the marker’s column $column reaches into the quiet zone $quiet');
+      }
     });
 
     testWidgets('every module lands on its own cell, at every version', (tester) async {
       /* Driving the painter over a recording canvas, rather than comparing
          pixels: it says exactly where each module was drawn, which is what
-         decides whether the thing scans. The pattern is a dark top-left
-         quadrant, so a painter that transposed, mirrored or mis-scaled the
-         matrix could not produce the same rectangles. */
+         decides whether the thing scans.
+
+         The pattern is a tall, narrow block in the top-left — deliberately not
+         square and not centred, because a square one is its own transpose and a
+         painter that swapped rows for columns would draw it identically. */
       for (final n in [25, 29, 33]) {
-        final half = n ~/ 2;
-        final modules = List.generate(n, (r) => List.generate(n, (c) => r < half && c < half));
+        final rows = n ~/ 2;
+        final cols = n ~/ 4;
+        final modules = List.generate(n, (r) => List.generate(n, (c) => r < rows && c < cols));
         await pumpIn(tester, LabelCard(preview: preview(labels: [
           LabelUnit(index: 1, of: 1, qty: 270, payload: 'x', qr: modules, barcode: List.filled(60, 2)),
         ])));
@@ -565,8 +608,8 @@ void main() {
         painter.paint(canvas, const Size(62, 62));
 
         final cell = 62 / n;
-        expect(canvas.rects.length, half * half,
-            reason: 'v$n: drew ${canvas.rects.length} modules, expected ${half * half}');
+        expect(canvas.rects.length, rows * cols,
+            reason: 'v$n: drew ${canvas.rects.length} modules, expected ${rows * cols}');
 
         for (final rect in canvas.rects) {
           final c = (rect.left / cell).round();
@@ -577,17 +620,32 @@ void main() {
         }
 
         /* The modules overlap by a hair so antialiasing leaves no white seam
-           between them. That bleed has to stay a fraction of a cell: a flat
-           one would dilate a 33-module code half again as much as the 25-module
+           between them. That bleed has to stay a fraction of a cell: a flat one
+           would dilate a 33-module code half again as much as the 25-module
            code it replaced, and a QR that prints too heavy stops scanning. */
         final bleed = canvas.rects.first.width - cell;
         expect(bleed, greaterThan(0), reason: 'v$n: modules would show seams');
         expect(bleed / cell, closeTo(0.16, 0.02),
             reason: 'v$n: modules bleed ${(bleed / cell * 100).round()}% of a cell');
 
-        // Nothing may spill out of the 62pt box, bleed included.
-        final last = canvas.rects.reduce((a, b) => a.right > b.right ? a : b);
-        expect(last.right, lessThanOrEqualTo(62.0), reason: 'v$n: the code overflows its box');
+        /* And the code has to fill its box. A dark matrix reaches both edges,
+           overhanging only by the bleed on the last row and column — which has
+           nowhere to fall but the quiet zone, and 0.16 of a module is far
+           inside it. The block above cannot show this: its dark modules stop
+           well short of both edges. */
+        final full = List.generate(n, (_) => List.filled(n, true));
+        await pumpIn(tester, LabelCard(preview: preview(labels: [
+          LabelUnit(index: 1, of: 1, qty: 270, payload: 'x', qr: full, barcode: List.filled(60, 2)),
+        ])));
+        final edges = _RecordingCanvas();
+        tester.widget<CustomPaint>(find.descendant(of: qrBox, matching: find.byType(CustomPaint)))
+            .painter!
+            .paint(edges, const Size(62, 62));
+        expect(edges.rects.length, n * n, reason: 'v$n: a dark matrix lost modules');
+        final right = edges.rects.map((r) => r.right).reduce((a, b) => a > b ? a : b);
+        final bottom = edges.rects.map((r) => r.bottom).reduce((a, b) => a > b ? a : b);
+        expect(right, closeTo(62 + bleed, 0.001), reason: 'v$n: the code does not fill its width');
+        expect(bottom, closeTo(62 + bleed, 0.001), reason: 'v$n: the code does not fill its height');
       }
     });
   });

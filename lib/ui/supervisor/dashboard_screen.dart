@@ -20,6 +20,7 @@ class DashboardScreen extends ConsumerWidget {
     final role = ref.watch(viewRoleProvider);
 
     return async.when(
+      skipLoadingOnReload: true,
       loading: () => const Padding(padding: EdgeInsets.only(top: 80), child: SpdLoader()),
       error: (e, _) => ErrorPanel(message: '$e', onRetry: () => invalidateAll(ref)),
       data: (d) => _Body(data: d, role: role),

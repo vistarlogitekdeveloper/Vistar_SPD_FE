@@ -101,10 +101,29 @@ The backend must be running; see `../backend/README.md`.
 flutter test
 ```
 
-Three files, and the split between them is deliberate.
+Four files, and the split between them is deliberate.
 
 `screen_render_test.dart` mounts all fourteen content screens at desktop and
-tablet widths in both themes, over a fake repository.
+tablet widths in both themes, over a fake repository that always succeeds.
+
+`screen_states_test.dart` covers the two states that one never reaches. A screen
+has three, and the other two are the ones nobody looks at, because the API is up
+on the machine where the screen was written. So every screen is mounted once
+against a repository that refuses everything and once against one that never
+answers, and must show an `ErrorPanel` or an `SpdLoader` rather than a blank
+rectangle.
+
+That file exists because of what it found. Every screen declared an `error:`
+branch and none of them could reach it: Riverpod keeps the previous error on a
+provider that is reloading, a plain `.when()` reports that as loading, and the
+default retry budget is ten attempts with a doubling backoff. A supervisor whose
+server was down watched a spinner for about thirty-eight seconds, with the
+message and the Try again button held behind it the whole time. `spdRetry` in
+`data/providers.dart` now spends its budget in 600ms — two quick attempts absorb
+a blip, and past that the screen says what happened and hands the retry back to
+the person, who knows things the client does not. `skipLoadingOnReload` is what
+lets the screen show the error it is already holding. One test measures that the
+panel appears within 800ms; remove either half and it fails.
 
 `widget_gallery_test.dart` mounts every widget in the shared library on its own.
 It exists because of a bug a release build cannot catch: `Wordmark` reproduced

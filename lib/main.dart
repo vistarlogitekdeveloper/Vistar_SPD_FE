@@ -35,8 +35,16 @@ Future<void> main() async {
     debugPrint('[spd] local storage unavailable — the theme will not persist: $err');
   }
 
-  runApp(ProviderScope(
+  // The container is built here rather than left to ProviderScope so the
+  // retry policy is explicit: ProviderScope does not expose one, and the
+  // default holds a failure behind a loader for some thirty-eight seconds.
+  final container = ProviderContainer(
     overrides: [sharedPrefsProvider.overrideWithValue(prefs)],
+    retry: spdRetry,
+  );
+
+  runApp(UncontrolledProviderScope(
+    container: container,
     child: const SpdApp(),
   ));
 }

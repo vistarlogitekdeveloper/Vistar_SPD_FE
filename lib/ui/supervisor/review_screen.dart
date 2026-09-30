@@ -19,6 +19,7 @@ class ReviewScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(reviewProvider);
     return async.when(
+      skipLoadingOnReload: true,
       loading: () => const Padding(padding: EdgeInsets.only(top: 80), child: SpdLoader()),
       error: (e, _) => ErrorPanel(message: '$e', onRetry: () => invalidateAll(ref)),
       data: (d) => _Body(data: d),

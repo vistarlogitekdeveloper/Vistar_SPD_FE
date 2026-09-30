@@ -122,6 +122,7 @@ class _LinesScreenState extends ConsumerState<LinesScreen> {
       ),
 
       async.when(
+        skipLoadingOnReload: true,
         loading: () => const SpdLoader(size: 48),
         error: (e, _) => ErrorPanel(message: '$e', onRetry: () => invalidateAll(ref)),
         data: (page) {

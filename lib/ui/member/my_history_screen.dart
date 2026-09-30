@@ -24,6 +24,7 @@ class MyHistoryScreen extends ConsumerWidget {
             'nothing on paper, nothing re-typed.',
       ),
       async.when(
+        skipLoadingOnReload: true,
         loading: () => const SpdLoader(size: 48),
         error: (e, _) => ErrorPanel(message: '$e', onRetry: () => invalidateAll(ref)),
         data: (txns) => SpdTable(

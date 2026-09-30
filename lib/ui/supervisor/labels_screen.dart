@@ -49,6 +49,7 @@ class LabelsScreen extends ConsumerWidget {
       ),
 
       lines.when(
+        skipLoadingOnReload: true,
         loading: () => const SpdLoader(size: 48),
         error: (e, _) => ErrorPanel(message: '$e', onRetry: () => invalidateAll(ref)),
         data: (page) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -72,6 +73,7 @@ class LabelsScreen extends ConsumerWidget {
       const SizedBox(height: 24),
       const SectionTitle('Print log', trailing: 'reprints require a reason'),
       log.when(
+        skipLoadingOnReload: true,
         loading: () => const SpdLoader(size: 40),
         error: (e, _) => ErrorPanel(message: '$e', onRetry: () => invalidateAll(ref)),
         data: (prints) => SpdTable(

@@ -36,8 +36,6 @@ class SpdRepository {
     return (token: '${res['token']}', user: SpdUser(_m(res['user'])));
   }
 
-  Future<SpdUser> me() async => SpdUser(_m((await api.get('/auth/me'))['user']));
-
   Future<void> logout() async {
     try {
       await api.post('/auth/logout');

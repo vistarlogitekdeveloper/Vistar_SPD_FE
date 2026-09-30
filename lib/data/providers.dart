@@ -196,18 +196,24 @@ void invalidateAll(WidgetRef ref) => ref.read(dataVersionProvider.notifier).upda
 
 /* ------------------------------------------------------- data families --- */
 
-/// Everything below re-reads [dataVersionProvider] and [selectedShiftProvider],
-/// so a screen never has to remember which of the two changed.
-final _scopeProvider = Provider<({String shiftId, int version})?>((ref) {
-  final id = ref.watch(selectedShiftProvider);
-  final v = ref.watch(dataVersionProvider);
-  return id == null ? null : (shiftId: id, version: v);
-});
-
+/// Runs [run] against the selected shift, once there is one.
+///
+/// Awaiting the shift list rather than reading its current value matters more
+/// than it looks. Throwing "No shift selected yet" while the list was merely in
+/// flight turned an ordinary cold start into an *error*, and because Riverpod
+/// keeps the previous error on a provider that is reloading, that error then
+/// stuck to every screen for the rest of the session. It also masked the real
+/// one: when the API was genuinely down, the screens reported a missing shift
+/// rather than the connection failure the server never got to give.
+///
+/// `.future` suspends until the list resolves and rethrows its own failure, so
+/// loading reads as loading and a failure carries the message NFR-4.2 wants.
 Future<T> _scoped<T>(Ref ref, Future<T> Function(SpdRepository repo, String shiftId) run) async {
-  final scope = ref.watch(_scopeProvider);
-  if (scope == null) throw ApiException('No shift selected yet');
-  return run(ref.watch(repositoryProvider), scope.shiftId);
+  ref.watch(dataVersionProvider);
+  final shifts = await ref.watch(shiftsProvider.future);
+  final id = ref.watch(shiftIdProvider) ?? (shifts.isEmpty ? null : shifts.first.id);
+  if (id == null) throw ApiException('No shift has been created yet');
+  return run(ref.watch(repositoryProvider), id);
 }
 
 final dashboardProvider = FutureProvider<DashboardPage>((ref) => _scoped(ref, (r, s) => r.dashboard(s)));
@@ -325,3 +331,30 @@ final selectedPackLineProvider = uiValue<String?>(null);
 final packClockProvider = StreamProvider.autoDispose<DateTime>(
   (ref) => Stream.periodic(const Duration(seconds: 1), (_) => DateTime.now()),
 );
+
+/* -------------------------------------------------------------- retries --- */
+
+/// How hard the app retries a failed read before telling the user.
+///
+/// Riverpod's default is ten attempts with a doubling backoff, which is about
+/// thirty-eight seconds. For that whole time a screen sits on its loader with
+/// the error held but not shown, so a Supervisor whose server is down watches a
+/// spinner and is given nothing to act on — while every screen already carries
+/// an ErrorPanel with a Try again button, built for exactly this moment.
+///
+/// Two quick attempts absorb a genuine blip. Past that the screen says what
+/// happened and hands the retry back to the person, who knows things the client
+/// does not: that the server is being restarted, or the site network is out.
+///
+/// A 4xx is never retried. A refused permission or a rejected quantity will be
+/// refused identically the second time, and repeating it only delays the
+/// message NFR-4.2 wants shown.
+Duration? spdRetry(int retryCount, Object error) {
+  if (error is Error) return null;
+  if (error is ApiException) {
+    final code = error.statusCode;
+    if (code != null && code >= 400 && code < 500) return null;
+  }
+  if (retryCount >= 2) return null;
+  return Duration(milliseconds: 200 * (retryCount + 1));
+}
