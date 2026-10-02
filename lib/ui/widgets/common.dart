@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/format.dart';
@@ -90,6 +91,10 @@ class SMark extends StatelessWidget {
       width: width,
       height: h,
       fit: BoxFit.contain,
+      // The asset is 333px wide and is drawn anywhere from 30 to 64 across.
+      // The default sampling softens a downscale that steep; cubic keeps the
+      // mark's edges crisp.
+      filterQuality: FilterQuality.high,
       errorBuilder: (_, _, _) => const SizedBox.shrink(),
     );
     if (!glow) return Opacity(opacity: opacity, child: img);
@@ -1660,22 +1665,70 @@ class _CloseButton extends StatelessWidget {
 /* --------------------------------------------------------------- misc ---- */
 
 /// The route-change loader (`#routeload`) and any in-card wait.
-class SpdLoader extends StatelessWidget {
-  const SpdLoader({super.key, this.size = 64, this.label});
+///
+/// With [fill] (the default) it centres itself in the space it is given — and
+/// inside a scrolling page, which gives it no height at all, in the visible
+/// space from where it starts down to the bottom of the viewport. Without that
+/// it sat just under whatever preceded it, at the top of an empty page. Pass
+/// `fill: false` for a wait inside a card or a list row, where it should take
+/// only its own height.
+class SpdLoader extends StatefulWidget {
+  const SpdLoader({super.key, this.size = 64, this.label, this.fill = true});
 
   final double size;
   final String? label;
+  final bool fill;
 
   @override
-  Widget build(BuildContext context) => Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          _Breathing(child: SMark(width: size)),
-          if (label != null) ...[
-            const SizedBox(height: 14),
-            Text(label!, style: body(size: 12.5, color: Brand.txt3)),
-          ],
-        ]),
+  State<SpdLoader> createState() => _SpdLoaderState();
+}
+
+class _SpdLoaderState extends State<SpdLoader> {
+  /// The height that reaches the bottom of the viewport; null until measured.
+  double? _height;
+
+  void _measure(Duration _) {
+    if (!mounted) return;
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return;
+    final top = box.localToGlobal(Offset.zero).dy;
+    /* The bottom of the viewport as far as it is allowed to reach, not as far
+       as it happens to: a scroll view given loose constraints shrinks to its
+       content, and while the page is loading the loader *is* the content. */
+    final screen = MediaQuery.sizeOf(context).height;
+    final Object? viewport = RenderAbstractViewport.maybeOf(box);
+    final bottom = viewport is RenderBox && viewport.hasSize && viewport.constraints.hasBoundedHeight
+        ? math.min(screen, viewport.localToGlobal(Offset.zero).dy + viewport.constraints.maxHeight)
+        : screen;
+    final h = math.max(_minHeight, bottom - top - 24);
+    if (_height == null || (h - _height!).abs() > 1) setState(() => _height = h);
+  }
+
+  double get _minHeight => widget.size * 3;
+
+  @override
+  Widget build(BuildContext context) {
+    final mark = Column(mainAxisSize: MainAxisSize.min, children: [
+      // The glow scales with the mark: a fixed 18px halo swamps a 40px mark
+      // and reads as a blur rather than a glow.
+      _Breathing(child: SMark(width: widget.size, glowRadius: widget.size * 0.22)),
+      if (widget.label != null) ...[
+        const SizedBox(height: 14),
+        Text(widget.label!, style: body(size: 12.5, color: Brand.txt3)),
+      ],
+    ]);
+    if (!widget.fill) return Center(child: mark);
+
+    return LayoutBuilder(builder: (context, c) {
+      if (c.hasBoundedHeight) return SizedBox(height: c.maxHeight, child: Center(child: mark));
+      WidgetsBinding.instance.addPostFrameCallback(_measure);
+      // Hidden for the one frame before it is measured, so it does not jump.
+      return SizedBox(
+        height: _height ?? _minHeight,
+        child: Center(child: Opacity(opacity: _height == null ? 0 : 1, child: mark)),
       );
+    });
+  }
 }
 
 /// `@keyframes breathe` — the gentle pulse on the brand mark.

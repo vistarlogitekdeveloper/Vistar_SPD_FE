@@ -336,7 +336,6 @@ class _FakeRepo extends SpdRepository {
             index: 1, of: 1, qty: 270,
             payload: '90210-ABX|INV-77001|270',
             qr: List.generate(25, (r) => List.generate(25, (c) => (r + c).isEven)),
-            barcode: List.filled(60, 2),
           ),
         ],
         alreadyPrinted: true,

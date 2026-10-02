@@ -124,7 +124,7 @@ class AllocationScreen extends ConsumerWidget {
       const SectionTitle('Allocation log'),
       allocs.when(
         skipLoadingOnReload: true,
-        loading: () => const SpdLoader(size: 40),
+        loading: () => const SpdLoader(size: 40, fill: false),
         error: (e, _) => ErrorPanel(message: '$e', onRetry: () => invalidateAll(ref)),
         data: (list) => SpdTable(
           columns: const [
@@ -202,7 +202,17 @@ Future<void> _withdraw(BuildContext context, WidgetRef ref, Allocation a) async 
   }
 }
 
-/// The allocation dialog, including the BR-04 split with its mandatory reason.
+/// FR-4.1 — putting a line on one table, or on several.
+///
+/// A line goes to as many tables as the work needs, so this picks a set rather
+/// than a table and an optional second: an invoice spread over three benches is
+/// what the floor does, and the dialog that only offered "split with one other"
+/// is what stopped it. It is also how a line already placed gains another
+/// table, which is why the tables it is on are shown but not offered.
+///
+/// BR-04 survives as the rule it was always protecting — a line never lands on
+/// a second table by accident — so the reason is demanded the moment the line
+/// would touch more than one, and the server demands it again.
 Future<void> showAllocateDialog(BuildContext context, WidgetRef ref, GrnLine line) async {
   final tables = ref.read(tablesProvider).value ?? const <TableStat>[];
   if (tables.isEmpty) {
@@ -210,72 +220,87 @@ Future<void> showAllocateDialog(BuildContext context, WidgetRef ref, GrnLine lin
     return;
   }
 
-  var tableNo = tables.first.tableNo;
-  String? splitWith;
-  final q1 = TextEditingController(text: '${(line.grnQty / 2).round()}');
-  final q2 = TextEditingController(text: '${(line.grnQty / 2).ceil()}');
+  final already = line.tables.toSet();
+  final free = tables.where((t) => !already.contains(t.tableNo)).toList();
+  if (free.isEmpty) {
+    Toast.bad(context, 'Nowhere left to allocate',
+        '${line.partNo} is already on every packing table.');
+    return;
+  }
+
+  final picked = <String>{};
+  final shares = {for (final t in free) t.tableNo: TextEditingController()};
   final reason = TextEditingController();
+
+  // Anything past the first table has to say why — including the first one
+  // added to a line that is already placed somewhere.
+  bool needsReason() => already.isNotEmpty || picked.length > 1;
 
   await showSpdModal<void>(
     context,
     title: 'Allocate ${line.partNo}',
     subtitle: '${line.invoiceNo} · GRN ${nf(line.grnQty)} ${line.uom} · ${line.partDesc}',
     content: (context, setModalState) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      if (already.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 14),
+          child: AlertBox(
+            tone: AlertTone.info,
+            title: 'Already on ${already.join(', ')}',
+            message: 'Adding another table leaves those in place. Both benches see the line, '
+                'and what each actually packs is what its members submit.',
+          ),
+        ),
       Field(
-        label: 'Packing table',
-        child: SpdDropdown<String>(
-          value: tableNo,
-          items: [
-            for (final t in tables)
-              DropdownMenuItem(
-                value: t.tableNo,
-                child: Text('${t.tableNo} · ${t.memberName ?? 'unstaffed'} · ${t.status}',
-                    overflow: TextOverflow.ellipsis),
+        label: 'Packing tables',
+        hint: 'Pick one, or several to share the line',
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final t in free)
+              SpdChip(
+                '${t.tableNo} · ${t.memberName ?? 'unstaffed'}',
+                selected: picked.contains(t.tableNo),
+                onTap: () => setModalState(() {
+                  if (!picked.remove(t.tableNo)) picked.add(t.tableNo);
+                }),
               ),
           ],
-          onChanged: (v) => setModalState(() => tableNo = v ?? tableNo),
         ),
       ),
-      Field(
-        label: 'Split across a second table? (BR-04 — needs a reason)',
-        child: SpdDropdown<String>(
-          value: splitWith,
-          items: [
-            const DropdownMenuItem(value: null, child: Text('No — allocate full quantity to one table')),
-            for (final t in tables.where((t) => t.tableNo != tableNo))
-              DropdownMenuItem(value: t.tableNo, child: Text('Yes — split with ${t.tableNo}')),
-          ],
-          onChanged: (v) => setModalState(() => splitWith = v),
-        ),
-      ),
-      if (splitWith != null) ...[
-        Row(children: [
-          Expanded(
-            child: Field(
-              label: 'Qty to $tableNo',
-              child: TextField(
-                controller: q1,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                style: mono(size: 14),
-              ),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Field(
-              label: 'Qty to $splitWith',
-              child: TextField(
-                controller: q2,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                style: mono(size: 14),
-              ),
-            ),
-          ),
-        ]),
+
+      /* A share is optional. Left blank the table simply works the line, which
+         is what a whole-line allocation has always meant and what several
+         tables hold when they share a queue; filled in, it is that table's
+         portion and the server checks the total against the GRN quantity. */
+      if (picked.length > 1)
         Field(
-          label: 'Split reason',
+          label: 'Quantity each (optional)',
+          hint: 'Leave blank to share the line without splitting it',
+          child: Column(children: [
+            for (final t in picked.toList()..sort())
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(children: [
+                  SizedBox(width: 78, child: Text(t, style: body(size: 13, weight: FontWeight.w700))),
+                  Expanded(
+                    child: TextField(
+                      controller: shares[t],
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      style: mono(size: 14),
+                      decoration: InputDecoration(hintText: 'of ${nf(line.grnQty)} ${line.uom}'),
+                    ),
+                  ),
+                ]),
+              ),
+          ]),
+        ),
+
+      if (needsReason())
+        Field(
+          label: 'Reason',
           required: true,
           bottom: 0,
           child: TextField(
@@ -284,7 +309,6 @@ Future<void> showAllocateDialog(BuildContext context, WidgetRef ref, GrnLine lin
             decoration: const InputDecoration(hintText: 'e.g. bulky line, dispatch cut-off'),
           ),
         ),
-      ],
     ]),
     actions: (context, _) => [
       GhostButton(label: 'Cancel', onPressed: () => Navigator.pop(context)),
@@ -293,23 +317,25 @@ Future<void> showAllocateDialog(BuildContext context, WidgetRef ref, GrnLine lin
         icon: Icons.check_rounded,
         small: true,
         onPressed: () async {
+          if (picked.isEmpty) {
+            Toast.bad(context, 'No table chosen', 'Pick at least one packing table.');
+            return;
+          }
           try {
             await ref.read(repositoryProvider).allocate(
                   lineId: line.id,
-                  tableNo: tableNo,
-                  splitWith: splitWith,
-                  qty1: splitWith == null ? null : num.tryParse(q1.text),
-                  qty2: splitWith == null ? null : num.tryParse(q2.text),
+                  tables: [
+                    for (final t in picked.toList()..sort())
+                      TableShare(t, num.tryParse(shares[t]?.text.trim() ?? '')),
+                  ],
                   reason: reason.text.trim(),
                 );
             if (context.mounted) Navigator.pop(context);
             invalidateAll(ref);
             if (context.mounted) {
-              Toast.ok(
-                context,
-                'Allocated',
-                '${line.partNo} is now visible on $tableNo${splitWith != null ? ' and $splitWith' : ''} — no printout needed.',
-              );
+              final on = (picked.toList()..sort()).join(' and ');
+              Toast.ok(context, 'Allocated',
+                  '${line.partNo} is now visible on $on — no printout needed.');
             }
           } on ApiException catch (e) {
             if (context.mounted) Toast.bad(context, 'Allocation refused', e.message);

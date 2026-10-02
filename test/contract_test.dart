@@ -177,8 +177,6 @@ void main() {
       expect(u.qr, isNotEmpty, reason: 'no QR modules');
       expect(u.qr.every((row) => row.length == u.qr.length), isTrue,
           reason: 'the QR is ${u.qr.length} rows of varying width');
-      expect(u.barcode, isNotEmpty, reason: 'no barcode widths');
-      expect(u.barcode.every((w) => w > 0), isTrue, reason: 'a zero-width bar');
     }
   });
 
@@ -250,9 +248,26 @@ void main() {
 
   contract('the hourly reports carry their figures (FR-8.3)', (shiftId) async {
     final h = await repo.hourly(shiftId);
+    expect(h.reports, isNotEmpty, reason: 'the seed writes hourly reports');
     for (final r in h.reports) {
       expect(r.id, isNotEmpty);
       expect(r.generatedAt, isNotNull, reason: '${r.id} has no generated time');
+      // The email subject is built from this. A missing field does not show up
+      // as a blank column here — it shows up as a gap inside a sentence:
+      // "Hourly Status ·  · 10:58". The list query did not join it, though the
+      // detail query always had.
+      expect(r.shiftLabel, isNotEmpty,
+          reason: '${r.id} has no shift label — the email subject would read '
+              '"Hourly Status ·  · <time>"');
+    }
+  });
+
+  contract('the MIS snapshots carry the shift they summarise', (shiftId) async {
+    final m = await repo.mis(shiftId: shiftId);
+    for (final s in m.snapshots) {
+      expect(s.id, isNotEmpty);
+      expect(s.shiftLabel, isNotEmpty, reason: '${s.id} has no shift label');
+      expect(s.generatedAt, isNotNull);
     }
   });
 

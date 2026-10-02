@@ -29,7 +29,7 @@ class LabelsScreen extends ConsumerWidget {
         accent: 'ID Labels',
         title: 'ID label print & preview',
         blurb: 'Labels carry part number, description, invoice, GRN quantity, GRN date and a '
-            'scannable QR + barcode — generated from the imported data, never typed. Reprints are '
+            'scannable QR — generated from the imported data, never typed. Reprints are '
             'audit-logged with a reason (BR-09).',
         actions: [
           GhostButton(
@@ -74,7 +74,7 @@ class LabelsScreen extends ConsumerWidget {
       const SectionTitle('Print log', trailing: 'reprints require a reason'),
       log.when(
         skipLoadingOnReload: true,
-        loading: () => const SpdLoader(size: 40),
+        loading: () => const SpdLoader(size: 40, fill: false),
         error: (e, _) => ErrorPanel(message: '$e', onRetry: () => invalidateAll(ref)),
         data: (prints) => SpdTable(
           columns: const [

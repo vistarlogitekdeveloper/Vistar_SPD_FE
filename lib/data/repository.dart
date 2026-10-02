@@ -129,6 +129,7 @@ class SpdRepository {
       txns: _list(res['txns'], PackingTxn.new),
       exceptions: _list(res['exceptions'], SpdException.new),
       allocations: _list(res['allocations'], Allocation.new),
+      adjustments: _list(res['adjustments'], QtyAdjustment.new),
     );
   }
 
@@ -147,7 +148,6 @@ class SpdRepository {
             qty: (l['qty'] as num?) ?? 0,
             payload: '${l['payload']}',
             qr: (l['qr'] as List).map((row) => (row as List).map((c) => c == 1).toList()).toList(),
-            barcode: (l['barcode'] as List).map((e) => (e as num).toInt()).toList(),
           ),
       ],
       alreadyPrinted: res['alreadyPrinted'] == true,
@@ -173,22 +173,39 @@ class SpdRepository {
   Future<List<Allocation>> allocations(String shiftId) async =>
       _list((await api.get('/allocations', query: {'shiftId': shiftId}))['allocations'], Allocation.new);
 
+  /// FR-4.1 — puts a line on one table or on several, in one call.
+  ///
+  /// A line goes to as many tables as the work needs and a table takes as many
+  /// lines, so an invoice can be spread across the floor and a table can be
+  /// working three invoices at once. What BR-04 still insists on is that a line
+  /// never reaches a second table by accident: the first is a plain choice,
+  /// and everything after it — whether named in this call or added to a line
+  /// already placed — has to carry a reason, which the server enforces.
+  ///
+  /// A null `qty` means *this table works this line, quantity unstated*, which
+  /// is the shared-queue case and what a single whole-line allocation has
+  /// always sent.
   Future<void> allocate({
     required String lineId,
-    required String tableNo,
-    String? splitWith,
-    num? qty1,
-    num? qty2,
+    required List<TableShare> tables,
     String reason = '',
   }) =>
       api.post('/allocations', body: {
         'lineId': lineId,
-        'tableNo': tableNo,
-        if (splitWith != null && splitWith.isNotEmpty) 'splitWith': splitWith,
-        'qty1': ?qty1,
-        'qty2': ?qty2,
+        'tables': [
+          for (final t in tables) {'tableNo': t.tableNo, if (t.qty != null) 'qty': t.qty},
+        ],
         'reason': reason,
       });
+
+  /// BR-01 — closes out a remainder nobody will pack, or restores one.
+  ///
+  /// Pending is GRN minus packed and is computed, so there is no remaining
+  /// quantity to edit; what this records is the third term, with the reason it
+  /// happened. A negative quantity undoes an earlier write-off, because the
+  /// log is append-only.
+  Future<void> adjustQty(String lineId, {required num qty, required String reason}) =>
+      api.post('/lines/$lineId/adjust', body: {'qty': qty, 'reason': reason});
 
   Future<void> withdrawAllocation(String id) => api.delete('/allocations/$id');
 
@@ -406,11 +423,20 @@ class LinesPage {
 }
 
 class LineDetail {
-  LineDetail({required this.line, required this.txns, required this.exceptions, required this.allocations});
+  LineDetail({
+    required this.line,
+    required this.txns,
+    required this.exceptions,
+    required this.allocations,
+    this.adjustments = const [],
+  });
   final GrnLine line;
   final List<PackingTxn> txns;
   final List<SpdException> exceptions;
   final List<Allocation> allocations;
+
+  /// BR-01 — every write-off against this line, with the reason each carried.
+  final List<QtyAdjustment> adjustments;
 }
 
 /// FR-3.5 — one printed label. A line with an MOQ of 300 and a GRN quantity of
@@ -422,14 +448,12 @@ class LabelUnit {
     required this.qty,
     required this.payload,
     required this.qr,
-    required this.barcode,
   });
   final int index;
   final int of;
   final num qty;
   final String payload;
   final List<List<bool>> qr;
-  final List<int> barcode;
 
   bool get isSplit => of > 1;
   String get marker => '$index of $of';

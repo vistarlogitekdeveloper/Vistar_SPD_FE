@@ -12,6 +12,8 @@ import 'package:spd_frontend/ui/widgets/common.dart';
 import 'package:spd_frontend/ui/widgets/label_card.dart';
 import 'package:spd_frontend/ui/widgets/line_detail.dart';
 import 'package:spd_frontend/ui/widgets/pdf_preview_dialog.dart';
+import 'package:spd_frontend/ui/supervisor/allocation_screen.dart' show showAllocateDialog;
+import 'package:spd_frontend/ui/supervisor/lines_screen.dart' show showAdjustQtyDialog;
 
 /// What `widget_gallery_test.dart` cannot tell you.
 ///
@@ -441,6 +443,28 @@ void main() {
     });
   });
 
+  group('SpdLoader', () {
+    testWidgets('centres in the visible space below the filters, not just under them', (tester) async {
+      /* Every screen is a scrolling column, which gives the loader no height
+         of its own; it used to sit directly under the filter card at the top of
+         an empty page. 300px of header and filters in a 900px viewport leaves
+         the space from 316 down, and the mark belongs in the middle of that. */
+      await pumpIn(tester, const Column(children: [
+        SizedBox(height: 300),
+        SpdLoader(size: 48),
+      ]));
+      await tester.pump();
+      final mark = tester.getCenter(find.byType(SMark));
+      expect(mark.dy, closeTo((316 + 900 - 24) / 2, 2), reason: 'the mark is at ${mark.dy}');
+      expect(mark.dx, closeTo(1440 / 2, 1));
+    });
+
+    testWidgets('fill: false takes only its own height, for a wait inside a card', (tester) async {
+      await pumpIn(tester, const Column(children: [SpdLoader(size: 40, fill: false), Text('after')]));
+      expect(tester.getTopLeft(find.text('after')).dy, lessThan(16 + 40 * 1.06 + 2));
+    });
+  });
+
   /* ===================================================================== */
   /* 6. LabelCard — what a supervisor approves before committing stock     */
   /* ===================================================================== */
@@ -450,7 +474,6 @@ void main() {
           index: index, of: of, qty: qty,
           payload: '90210-ABX|INV-77001|$qty',
           qr: List.generate(qrSize, (r) => List.generate(qrSize, (c) => (r + c).isEven)),
-          barcode: List.filled(60, 2),
         );
 
     LabelPreview preview({List<LabelUnit>? labels, num grnQty = 270, num? moq}) => LabelPreview(
@@ -474,16 +497,26 @@ void main() {
       expect(find.textContaining('270'), findsWidgets, reason: 'the GRN quantity is missing');
     });
 
+    testWidgets('prints no vendor name and no barcode', (tester) async {
+      // The QR is the one code the floor scans; the vendor is on the paperwork.
+      await pumpIn(tester, LabelCard(preview: preview()));
+      expect(find.textContaining('DynaFast'), findsNothing, reason: 'the vendor name is printed');
+      final painters = tester
+          .widgetList<CustomPaint>(find.descendant(of: find.byType(LabelCard), matching: find.byType(CustomPaint)))
+          .where((p) => p.painter != null);
+      expect(painters, hasLength(1), reason: 'only the QR should be painted, not a barcode');
+    });
+
     testWidgets('renders in light theme and at a narrow width', (tester) async {
       await pumpIn(tester, LabelCard(preview: preview(), width: 260), light: true, width: 390);
       expectNoOverflow(tester, 'LabelCard narrow');
     });
 
-    testWidgets('survives an empty QR and barcode rather than blanking the screen', (tester) async {
+    testWidgets('survives an empty QR rather than blanking the screen', (tester) async {
       // The server is the only source of these; a failed preview must degrade.
       await pumpIn(tester, LabelCard(preview: LabelPreview(
         line: preview().line, template: 'x',
-        labels: [LabelUnit(index: 1, of: 1, qty: 270, payload: 'x', qr: const [], barcode: const [])],
+        labels: [LabelUnit(index: 1, of: 1, qty: 270, payload: 'x', qr: const [])],
         alreadyPrinted: false,
       )));
       expectNoOverflow(tester, 'LabelCard with no codes');
@@ -508,16 +541,20 @@ void main() {
       ));
       expectNoOverflow(tester, 'split LabelCard');
       expect(find.textContaining('50'), findsWidgets);
-      expect(find.textContaining('2 of 2'), findsOneWidget);
+      /* Which pack this is sits on the caption of the quantity it qualifies,
+         the way the printed label sets it — not on a line of its own. */
+      expect(find.text('QTY (2 OF 2)'), findsOneWidget);
       // FR-3.1 still wants the GRN quantity present, alongside the pack's share.
-      expect(find.textContaining('GRN 350'), findsOneWidget);
+      expect(find.text('GRN TOTAL'), findsOneWidget);
+      expect(find.text('350 NOS'), findsOneWidget);
     });
 
     testWidgets('an unsplit label shows no marker', (tester) async {
       await pumpIn(tester, LabelCard(preview: preview()));
-      expect(find.textContaining('1 of 1'), findsNothing,
+      expect(find.textContaining(' OF '), findsNothing,
           reason: 'a line that was never split must look exactly as it did before MOQ existed');
-      expect(find.textContaining('GRN 270'), findsNothing);
+      expect(find.text('GRN TOTAL'), findsNothing,
+          reason: 'and must not print the quantity twice');
     });
 
     /* The QR is no longer always 25 modules square. The backend encoder picks
@@ -568,21 +605,63 @@ void main() {
         expectNoOverflow(tester, 'split LabelCard with a $n×$n QR');
 
         final quiet = tester.getRect(qrBox).inflate(4 * (62 / n));
-        final marker = find.textContaining('GRN 350');
+        final marker = find.text('GRN TOTAL');
         expect(tester.getRect(marker).overlaps(quiet), isFalse,
-            reason: 'v$n: the marker ${tester.getRect(marker)} is in the quiet zone $quiet');
+            reason: 'v$n: the GRN total ${tester.getRect(marker)} is in the quiet zone $quiet');
 
-        /* Where this string happens to end is not the guarantee, though: it is
-           one line with an ellipsis, so a longer marker grows to fill the
-           column and stops there. The column is what has to clear the code —
-           and the same goes for the part number and the fields above it, which
-           clip at the same edge. */
-        final column = tester.getRect(
-            find.ancestor(of: marker, matching: find.byType(Column)).first);
-        expect(column.contains(tester.getRect(marker).centerLeft), isTrue,
-            reason: 'v$n: that is not the column the marker sits in');
-        expect(column.overlaps(quiet), isFalse,
-            reason: 'v$n: the marker’s column $column reaches into the quiet zone $quiet');
+        /* Where that one caption happens to end is not the guarantee, though.
+           It is a cell in the field grid, every cell clips at one line, and the
+           grid is what has to clear the code — so the grid is what is measured.
+           The same edge bounds the part number and the description above it. */
+        final grid = tester.getRect(find.ancestor(of: marker, matching: find.byType(Wrap)).first);
+        expect(grid.contains(tester.getRect(marker).centerLeft), isTrue,
+            reason: 'v$n: that is not the grid the GRN total sits in');
+        expect(grid.overlaps(quiet), isFalse,
+            reason: 'v$n: the field grid $grid reaches into the quiet zone $quiet');
+      }
+    });
+
+    testWidgets('over-long fields stop at the column edge, clear of the QR', (tester) async {
+      /* The PDF had exactly this wrong: its three fields were pitched a flat
+         78pt apart with no width to stop them, so GRN DATE's value was drawn
+         through the code's left edge on every label, inking modules that
+         should have been white. On screen the fields are a Wrap in the
+         left-hand column with the code as its sibling, so the column is what
+         bounds them rather than a width each — but that is a claim about what
+         Flutter does with the constraints, and the preview is what a
+         supervisor approves. So it is measured, with every field long enough
+         to fill its column and reach for the code if anything would let it.
+
+         The gutter is a fixed 10pt and four modules of a 25-module code is
+         9.92 of them, which is the whole of the margin here. */
+      for (final n in [25, 29, 33]) {
+        await pumpIn(tester, LabelCard(
+          preview: LabelPreview(
+            line: GrnLine({
+              'id': 'L001',
+              'invoice_no': 'INV-77003/2026-27/04-BLUEVOLT-MUMBAI-1',
+              'part_no': '90210-ABX-BRACKET-FRONT-LH-REV12-A/B.012',
+              'part_desc': 'Front bumper mounting bracket, left hand, revision 12, powder coated',
+              'uom': 'NOS', 'vendor': 'DynaFast Fasteners & Pressings (Chakan) Private Limited',
+              'grn_date': '2026-05-05', 'grn_qty': 1234567, 'moq': 300,
+            }),
+            template: 'SPD Standard 100×60',
+            labels: [unit(300, index: 1, of: 2, qrSize: n), unit(50, index: 2, of: 2, qrSize: n)],
+            alreadyPrinted: false,
+          ),
+          unit: unit(50, index: 2, of: 2, qrSize: n),
+        ));
+        expectNoOverflow(tester, 'LabelCard with over-long fields and a $n×$n QR');
+
+        final quiet = tester.getRect(qrBox).inflate(4 * (62 / n));
+        for (final element in find
+            .descendant(of: find.byType(LabelCard), matching: find.byType(Text))
+            .evaluate()) {
+          final box = element.renderObject! as RenderBox;
+          final rect = box.localToGlobal(Offset.zero) & box.size;
+          expect(rect.overlaps(quiet), isFalse,
+              reason: 'v$n: ${(element.widget as Text).data} at $rect is in the quiet zone $quiet');
+        }
       }
     });
 
@@ -599,7 +678,7 @@ void main() {
         final cols = n ~/ 4;
         final modules = List.generate(n, (r) => List.generate(n, (c) => r < rows && c < cols));
         await pumpIn(tester, LabelCard(preview: preview(labels: [
-          LabelUnit(index: 1, of: 1, qty: 270, payload: 'x', qr: modules, barcode: List.filled(60, 2)),
+          LabelUnit(index: 1, of: 1, qty: 270, payload: 'x', qr: modules),
         ])));
 
         final painter = tester.widget<CustomPaint>(
@@ -635,7 +714,7 @@ void main() {
            well short of both edges. */
         final full = List.generate(n, (_) => List.filled(n, true));
         await pumpIn(tester, LabelCard(preview: preview(labels: [
-          LabelUnit(index: 1, of: 1, qty: 270, payload: 'x', qr: full, barcode: List.filled(60, 2)),
+          LabelUnit(index: 1, of: 1, qty: 270, payload: 'x', qr: full),
         ])));
         final edges = _RecordingCanvas();
         tester.widget<CustomPaint>(find.descendant(of: qrBox, matching: find.byType(CustomPaint)))
@@ -647,6 +726,159 @@ void main() {
         expect(right, closeTo(62 + bleed, 0.001), reason: 'v$n: the code does not fill its width');
         expect(bottom, closeTo(62 + bleed, 0.001), reason: 'v$n: the code does not fill its height');
       }
+    });
+  });
+
+
+  /* ===================================================================== */
+  /* 6b. allocating to several tables, and writing off a remainder         */
+  /* ===================================================================== */
+
+  group('multi-table allocation and quantity write-off', () {
+    GrnLine line({int allocations = 0, List<String> tables = const [], num pending = 150}) => GrnLine({
+          'id': 'L001', 'invoice_no': 'INV-77001', 'part_no': '90210-ABX',
+          'part_desc': 'Front Bumper Bracket LH', 'uom': 'NOS', 'vendor': 'DynaFast',
+          'grn_date': '2026-09-09', 'grn_qty': 270, 'packed': 270 - pending,
+          'pending': pending, 'status': 'In Progress',
+          'allocations': allocations, 'tables': tables,
+        });
+
+    Widget host(SpdRepository repo, Widget Function(BuildContext, WidgetRef) child) => ProviderScope(
+          overrides: [
+            repositoryProvider.overrideWithValue(repo),
+            tablesProvider.overrideWith((ref) async => [
+                  TableStat(const {'table_no': 'T-01', 'member_name': 'Sandeep Singh', 'status': 'Occupied'}),
+                  TableStat(const {'table_no': 'T-02', 'member_name': 'Priya Nair', 'status': 'Free'}),
+                  TableStat(const {'table_no': 'T-03', 'member_name': null, 'status': 'Free'}),
+                ]),
+          ],
+          child: MaterialApp(
+            theme: buildTheme(light: false),
+            /* The dialog reads the table list with , which does not
+               subscribe — so without something watching it here the provider is
+               never initialised and the dialog bails with 'No packing tables'.
+               The real screens watch it to draw the board. */
+            home: Scaffold(body: Consumer(builder: (c, r, _) {
+              r.watch(tablesProvider);
+              return child(c, r);
+            })),
+          ),
+        );
+
+    testWidgets('a line already on a table can still be sent to another', (tester) async {
+      /* BR-04 used to refuse a second table outright unless the whole thing
+         was split in one go, which meant an invoice could never be spread
+         across the floor as the work actually arrives. The dialog now offers
+         every table the line is *not* already on, and says which it is. */
+      final repo = _AllocRepo();
+      await tester.pumpWidget(host(repo, (c, r) => GradButton(
+            label: 'open',
+            onPressed: () => showAllocateDialog(c, r, line(allocations: 1, tables: ['T-01'])),
+          )));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Already on T-01'), findsOneWidget);
+      expect(find.textContaining('T-01 ·'), findsNothing,
+          reason: 'the table it is already on must not be offered again');
+      expect(find.textContaining('T-02 ·'), findsOneWidget);
+      expect(find.textContaining('T-03 ·'), findsOneWidget);
+
+      // Adding to a line already placed is the BR-04 case, so a reason is asked
+      // for before anything is picked.
+      expect(find.textContaining('REASON'), findsOneWidget);
+
+      await tester.tap(find.textContaining('T-02 ·'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'Second bench opened for the cut-off');
+      await tester.tap(find.text('Confirm allocation'));
+      await tester.pumpAndSettle();
+
+      expect(repo.sent, isNotNull);
+      expect(repo.sent!.map((t) => t.tableNo).toList(), ['T-02']);
+      expect(repo.reason, 'Second bench opened for the cut-off');
+
+      // A toast outlives the frame that shows it; drain its timer so the
+      // test does not end with one pending.
+      await tester.pump(const Duration(milliseconds: 6500));
+      await tester.pump();
+    });
+
+    testWidgets('several tables can be picked at once, each with a share', (tester) async {
+      final repo = _AllocRepo();
+      await tester.pumpWidget(host(repo, (c, r) => GradButton(
+            label: 'open', onPressed: () => showAllocateDialog(c, r, line()))));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      // One table is an ordinary allocation and asks for nothing more.
+      await tester.tap(find.textContaining('T-01 ·'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('QUANTITY EACH'), findsNothing);
+      expect(find.textContaining('REASON'), findsNothing,
+          reason: 'the first table is a plain choice — BR-04 only guards the second');
+
+      // A second turns it into a split, which asks for both.
+      await tester.tap(find.textContaining('T-03 ·'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('QUANTITY EACH'), findsOneWidget);
+      expect(find.textContaining('REASON'), findsOneWidget);
+
+      final qtys = find.descendant(
+          of: find.byType(Wrap).last, matching: find.byType(TextField));
+      expect(qtys, findsNothing, reason: 'the shares are not inside the chip wrap');
+
+      await tester.enterText(find.byType(TextField).first, '170');
+      await tester.enterText(find.byType(TextField).at(1), '100');
+      await tester.enterText(find.byType(TextField).last, 'Bulky line spread over two benches');
+      await tester.tap(find.text('Confirm allocation'));
+      await tester.pumpAndSettle();
+
+      expect(repo.sent!.map((t) => '${t.tableNo}:${t.qty}').toList(), ['T-01:170', 'T-03:100']);
+      expect(repo.reason, 'Bulky line spread over two benches');
+
+      // A toast outlives the frame that shows it; drain its timer so the
+      // test does not end with one pending.
+      await tester.pump(const Duration(milliseconds: 6500));
+      await tester.pump();
+    });
+
+    testWidgets('the write-off sends a quantity and a reason, and nothing else', (tester) async {
+      /* BR-01 — there is no remaining quantity to edit, so what the dialog
+         collects is the write-off itself. It must say so: a Supervisor who
+         thinks this is correcting the GRN figure has been misled about what
+         the MIS will show. */
+      final repo = _AdjustRepo();
+      await tester.pumpWidget(host(repo, (c, r) => GradButton(
+            label: 'open', onPressed: () => showAdjustQtyDialog(c, r, line(pending: 5)))));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('does not change the GRN quantity'), findsOneWidget);
+      expect(find.textContaining('5 NOS outstanding'), findsOneWidget);
+
+      // It defaults to the whole remainder, because closing a line out is what
+      // it is for.
+      expect(find.widgetWithText(TextField, '5'), findsOneWidget);
+
+      // A reason is not optional, and the refusal happens before the call.
+      await tester.tap(find.text('Write off'));
+      await tester.pumpAndSettle();
+      expect(repo.qty, isNull, reason: 'a write-off with no reason must not reach the server');
+
+      await tester.enterText(find.byType(TextField).last, 'Balance short-shipped');
+      await tester.tap(find.text('Write off'));
+      await tester.pumpAndSettle();
+      expect(repo.qty, 5);
+      expect(repo.reason, 'Balance short-shipped');
+
+      // A toast outlives the frame that shows it; drain its timer so the
+      // test does not end with one pending.
+      await tester.pump(const Duration(milliseconds: 6500));
+      await tester.pump();
     });
   });
 
@@ -739,6 +971,38 @@ class _FakeRepo extends SpdRepository {
           }),
         ],
       );
+}
+
+/// Captures what the allocation dialog would have sent, without a server.
+class _AllocRepo extends SpdRepository {
+  _AllocRepo() : super(ApiClient(baseUrl: 'http://127.0.0.1:1/api'));
+
+  List<TableShare>? sent;
+  String? reason;
+
+  @override
+  Future<void> allocate({
+    required String lineId,
+    required List<TableShare> tables,
+    String reason = '',
+  }) async {
+    sent = tables;
+    this.reason = reason;
+  }
+}
+
+/// Ditto for the BR-01 write-off.
+class _AdjustRepo extends SpdRepository {
+  _AdjustRepo() : super(ApiClient(baseUrl: 'http://127.0.0.1:1/api'));
+
+  num? qty;
+  String? reason;
+
+  @override
+  Future<void> adjustQty(String lineId, {required num qty, required String reason}) async {
+    this.qty = qty;
+    this.reason = reason;
+  }
 }
 
 class _FailingRepo extends SpdRepository {
@@ -882,7 +1146,6 @@ void splitDialogTests() {
         index: index, of: of, qty: qty,
         payload: '76621-MFS|INV-77003|$qty',
         qr: List.generate(25, (r) => List.generate(25, (c) => (r + c).isEven)),
-        barcode: List.filled(60, 2),
       );
 
   LabelPreview split(int packs) {
@@ -951,8 +1214,8 @@ void splitDialogTests() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.textContaining('prints 2 labels'), findsOneWidget);
     expect(find.textContaining('300 + 50'), findsOneWidget);
-    expect(find.textContaining('1 of 2'), findsOneWidget);
-    expect(find.textContaining('2 of 2'), findsOneWidget);
+    expect(find.text('QTY (1 OF 2)'), findsOneWidget);
+    expect(find.text('QTY (2 OF 2)'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

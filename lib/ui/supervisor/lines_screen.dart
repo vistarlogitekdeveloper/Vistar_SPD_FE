@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/api.dart';
 import '../../core/format.dart';
 import '../../core/theme.dart';
 import '../../data/providers.dart';
+import '../../models/models.dart';
 import '../widgets/common.dart';
 import '../widgets/line_detail.dart';
 import 'allocation_screen.dart' show showAllocateDialog;
@@ -140,7 +143,7 @@ class _LinesScreenState extends ConsumerState<LinesScreen> {
               SpdCol('Packed', right: true, width: 92),
               SpdCol('Pending', right: true, width: 92),
               SpdCol('Status', width: 128),
-              SpdCol('', right: true, width: 196),
+              SpdCol('', right: true, width: 272),
             ],
             rows: [
               for (final l in page.lines)
@@ -175,9 +178,44 @@ class _LinesScreenState extends ConsumerState<LinesScreen> {
                           onPressed: () => showLabelDialog(context, ref, l.id),
                         ),
                         const SizedBox(width: 6),
-                        if (l.allocationCount > 0)
-                          Pill(l.tables.join('+'), tone: PillTone.info)
-                        else
+
+                        /* BR-01 — the remainder nobody will pack. Pending is
+                           computed, so there is nothing here to type over; what
+                           this opens is a write-off carrying its reason. Icons
+                           rather than labels, because the row already carries
+                           two actions and gained a third: at full width the
+                           labelled versions overflowed the column by 110px. */
+                        if (l.pending > 0) ...[
+                          IconTile(
+                            icon: Icons.exposure_outlined,
+                            tooltip: 'Adjust the outstanding quantity',
+                            size: 32,
+                            onTap: locked ? null : () => showAdjustQtyDialog(context, ref, l),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
+
+                        /* FR-4.1 — a line can be on several tables, so the ones
+                           it is already on are shown *and* another can be added
+                           from here. The pill used to be the end of it, which
+                           meant a line allocated once could never gain a second
+                           bench from this screen — and until BR-04 was
+                           generalised, not from anywhere. */
+                        if (l.allocationCount > 0) ...[
+                          Pill(
+                            // Three tables' numbers do not fit the column, and
+                            // the count is what a Supervisor is scanning for.
+                            l.tables.length <= 2 ? l.tables.join('+') : '${l.tables.length} tables',
+                            tone: PillTone.info,
+                          ),
+                          const SizedBox(width: 6),
+                          IconTile(
+                            icon: Icons.add_rounded,
+                            tooltip: 'Allocate to another table',
+                            size: 32,
+                            onTap: locked ? null : () => showAllocateDialog(context, ref, l),
+                          ),
+                        ] else
                           GradButton(
                             label: 'Allocate',
                             icon: Icons.table_chart_outlined,
@@ -196,4 +234,91 @@ class _LinesScreenState extends ConsumerState<LinesScreen> {
       ),
     ]);
   }
+}
+
+/// BR-01 — writing off a remainder that will never be packed.
+///
+/// There is no "remaining quantity" to edit: pending is GRN minus packed, both
+/// of which are records rather than settings — the GRN figure is what SAP sent
+/// and a packing transaction is never rewritten (NFR-7.1). What a Supervisor
+/// is actually saying when they close a line with five outstanding is *those
+/// five are not coming*: damaged, short-shipped, the wrong part in the box. So
+/// that is what this records, as its own entry with the reason attached, and
+/// the member's 95 stays 95 on their productivity line.
+///
+/// The quantity defaults to the whole remainder, because closing a line out is
+/// what this is for; a smaller figure writes off part of it and leaves the
+/// rest outstanding.
+Future<void> showAdjustQtyDialog(BuildContext context, WidgetRef ref, GrnLine line) async {
+  final qty = TextEditingController(text: '${line.pending}');
+  final reason = TextEditingController();
+
+  await showSpdModal<void>(
+    context,
+    title: 'Adjust outstanding quantity',
+    subtitle: '${line.partNo} · ${line.invoiceNo} · ${nf(line.pending)} ${line.uom} outstanding',
+    content: (context, setModalState) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      AlertBox(
+        tone: AlertTone.warn,
+        title: 'This does not change the GRN quantity',
+        message: 'GRN ${nf(line.grnQty)} and packed ${nf(line.packed)} both stay as they are. '
+            'What is recorded is that the balance is not coming, and why — so the line '
+            'reconciles without anyone being credited with packing it.',
+      ),
+      const SizedBox(height: 14),
+      Field(
+        label: 'Quantity to write off',
+        hint: 'Up to the ${nf(line.pending)} ${line.uom} still outstanding',
+        child: TextField(
+          controller: qty,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          style: mono(size: 14),
+          onChanged: (_) => setModalState(() {}),
+        ),
+      ),
+      Field(
+        label: 'Reason',
+        required: true,
+        bottom: 0,
+        child: TextField(
+          controller: reason,
+          style: body(size: 14),
+          decoration: const InputDecoration(
+            hintText: 'e.g. balance short-shipped, closed on the supplier’s debit note',
+          ),
+        ),
+      ),
+    ]),
+    actions: (context, _) => [
+      GhostButton(label: 'Cancel', onPressed: () => Navigator.pop(context)),
+      GradButton(
+        label: 'Write off',
+        icon: Icons.check_rounded,
+        small: true,
+        onPressed: () async {
+          final n = num.tryParse(qty.text.trim());
+          if (n == null || n <= 0) {
+            Toast.bad(context, 'Nothing to write off', 'Enter a quantity greater than zero.');
+            return;
+          }
+          if (reason.text.trim().isEmpty) {
+            Toast.bad(context, 'A reason is required', 'Say why the balance is not coming.');
+            return;
+          }
+          try {
+            await ref.read(repositoryProvider).adjustQty(line.id, qty: n, reason: reason.text.trim());
+            if (context.mounted) Navigator.pop(context);
+            invalidateAll(ref);
+            if (context.mounted) {
+              Toast.ok(context, 'Quantity adjusted',
+                  '${nf(n)} ${line.uom} written off ${line.partNo} — ${nf(line.pending - n)} still outstanding.');
+            }
+          } on ApiException catch (e) {
+            if (context.mounted) Toast.bad(context, 'Adjustment refused', e.message);
+          }
+        },
+      ),
+    ],
+  );
 }

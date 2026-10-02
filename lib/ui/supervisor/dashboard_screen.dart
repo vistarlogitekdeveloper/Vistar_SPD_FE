@@ -21,7 +21,7 @@ class DashboardScreen extends ConsumerWidget {
 
     return async.when(
       skipLoadingOnReload: true,
-      loading: () => const Padding(padding: EdgeInsets.only(top: 80), child: SpdLoader()),
+      loading: () => const SpdLoader(),
       error: (e, _) => ErrorPanel(message: '$e', onRetry: () => invalidateAll(ref)),
       data: (d) => _Body(data: d, role: role),
     );

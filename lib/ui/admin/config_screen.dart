@@ -86,7 +86,7 @@ class _ConfigScreenState extends ConsumerState<ConfigScreen> {
 
     return cfgAsync.when(
       skipLoadingOnReload: true,
-      loading: () => const Padding(padding: EdgeInsets.only(top: 80), child: SpdLoader()),
+      loading: () => const SpdLoader(),
       error: (e, _) => ErrorPanel(message: '$e', onRetry: () => invalidateAll(ref)),
       data: (cfg) {
         _fill(cfg);
@@ -112,7 +112,7 @@ class _ConfigScreenState extends ConsumerState<ConfigScreen> {
               ),
               child: tables.when(
                 skipLoadingOnReload: true,
-                loading: () => const SpdLoader(size: 36),
+                loading: () => const SpdLoader(size: 36, fill: false),
                 error: (e, _) => Text('$e', style: body(size: 13, color: Brand.bad)),
                 data: (list) => SpdTable(
                   columns: const [

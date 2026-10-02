@@ -24,7 +24,7 @@ class PackScreen extends ConsumerWidget {
     final async = ref.watch(myQueueProvider);
     return async.when(
       skipLoadingOnReload: true,
-      loading: () => const Padding(padding: EdgeInsets.only(top: 80), child: SpdLoader()),
+      loading: () => const SpdLoader(),
       error: (e, _) => ErrorPanel(message: '$e', onRetry: () => invalidateAll(ref)),
       data: (q) {
         if (q.locked) return _Locked(queue: q);

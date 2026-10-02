@@ -20,7 +20,6 @@ class SpdUser {
   String? get tableNo => raw['table_no'] as String?;
   bool get active => raw['active'] != false;
   String get access => '${raw['access'] ?? ''}';
-  dynamic get lastLoginAt => raw['last_login_at'];
 
   /// The nav/route key the app uses for this role.
   String get roleKey => switch (role) {
@@ -44,7 +43,6 @@ class Shift {
   String? get finalByName => raw['final_by_name'] as String?;
   dynamic get finalAt => raw['final_at'];
   int get resubmits => intOf(raw['resubmits']);
-  int get lineCount => intOf(raw['line_count']);
 
   /// What the shift picker shows: "Shift A · 09-Sep-2026 · Open".
   String get pickerLabel => '$label · $status';
@@ -77,14 +75,36 @@ class GrnLine {
   int get pouches => intOf(raw['pouches']);
   int get boxes => intOf(raw['boxes']);
   int get txns => intOf(raw['txns']);
-  int get openExceptions => intOf(raw['open_exceptions']);
   int get allocationCount => intOf(raw['allocations']);
-  int get labelCopies => intOf(raw['label_copies']);
   String get status => '${raw['status'] ?? 'Pending'}';
+
+  /// BR-01's third term — the quantity written off as never coming.
+  ///
+  /// It is deliberately not folded into [packed]: 95 packed and 5 short is not
+  /// 100 packed, and the member's productivity is the work they did. Only
+  /// [pending] sees the sum, and the server is the one that computes it.
+  num get adjusted => numOf(raw['adjusted']);
+  int get adjustmentCount => intOf(raw['adjustments']);
+  bool get hasWriteOff => adjusted != 0;
+
+  /// FR-3.1 — what the label prints for packer and packing date.
+  ///
+  /// Both are only known once the line has been allocated: the packer is
+  /// whoever staffs the tables it went to, and the date is the shift's. The
+  /// server sends them with the line detail and the label preview, so an
+  /// unallocated line gives null and the label prints a dash.
+  String? get packer {
+    final v = raw['packer'];
+    return v == null || '$v'.isEmpty ? null : '$v';
+  }
+
+  String? get packedOn {
+    final v = raw['packed_on'];
+    return v == null || '$v'.isEmpty ? null : '$v';
+  }
 
   /// The member's own share of a split line, when there is one (BR-04).
   num? get myShare => raw['my_share'] == null ? null : numOf(raw['my_share']);
-  String get splitReason => '${raw['split_reason'] ?? ''}';
 
   List<String> get tables =>
       (raw['tables'] as List?)?.map((e) => '$e').toList() ?? const [];
@@ -123,14 +143,11 @@ class SpdException {
   final Map<String, dynamic> raw;
 
   String get id => '${raw['id']}';
-  String get txnId => '${raw['txn_id'] ?? ''}';
   String get lineId => '${raw['line_id'] ?? ''}';
   String get type => '${raw['type'] ?? ''}';
   String get detail => '${raw['detail'] ?? ''}';
   String get remarks => '${raw['remarks'] ?? ''}';
   dynamic get createdAt => raw['created_at'];
-  dynamic get resolvedAt => raw['resolved_at'];
-  String? get resolvedByName => raw['resolved_by_name'] as String?;
   bool get resolved => raw['resolved_at'] != null;
 
   String get partNo => '${raw['part_no'] ?? ''}';
@@ -158,7 +175,6 @@ class TableStat {
   int get txns => intOf(raw['txns']);
   int get lines => intOf(raw['lines']);
   int get allocatedLines => intOf(raw['allocated_lines']);
-  int get completedLines => intOf(raw['completed_lines']);
   num get allocatedGrn => numOf(raw['allocated_grn']);
   num get allocatedPacked => numOf(raw['allocated_packed']);
 
@@ -212,7 +228,6 @@ class GrnBatch {
 
   String get id => '${raw['id']}';
   String get fileName => '${raw['file_name'] ?? ''}';
-  String get shiftId => '${raw['shift_id'] ?? ''}';
   String get shiftLabel => '${raw['shift_label'] ?? ''}';
   dynamic get uploadedAt => raw['uploaded_at'];
   String get uploadedByName => '${raw['uploaded_by_name'] ?? ''}';
@@ -237,12 +252,42 @@ class Allocation {
   num get grnQty => numOf(raw['grn_qty']);
 }
 
+/// One table's share of a line, as the allocation dialog builds it.
+///
+/// A null [qty] means the table works the line without a stated share — which
+/// is what a whole-line allocation has always sent, and what several tables
+/// hold when they share a queue.
+class TableShare {
+  const TableShare(this.tableNo, [this.qty]);
+  final String tableNo;
+  final num? qty;
+}
+
+/// BR-01 — one write-off against a line's outstanding quantity.
+///
+/// A positive [qty] closes the remainder out, a negative one restores it: the
+/// log is append-only, so a write-off entered against the wrong line is undone
+/// by its opposite rather than deleted.
+class QtyAdjustment {
+  QtyAdjustment(this.raw);
+  final Map<String, dynamic> raw;
+
+  String get id => '${raw['id']}';
+  String get lineId => '${raw['line_id']}';
+  num get qty => numOf(raw['qty']);
+  String get reason => '${raw['reason'] ?? ''}';
+  dynamic get createdAt => raw['created_at'];
+  String get createdByName => '${raw['created_by_name'] ?? ''}';
+
+  /// True when this entry gave quantity back rather than writing it off.
+  bool get isRestore => qty < 0;
+}
+
 class HourlyReport {
   HourlyReport(this.raw);
   final Map<String, dynamic> raw;
 
   String get id => '${raw['id']}';
-  String get shiftId => '${raw['shift_id']}';
   String get shiftLabel => '${raw['shift_label'] ?? ''}';
   dynamic get generatedAt => raw['generated_at'];
   num get packed => numOf(raw['packed_qty']);

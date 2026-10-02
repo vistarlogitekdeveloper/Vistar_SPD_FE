@@ -5,9 +5,10 @@ import '../../core/theme.dart';
 import '../../data/repository.dart';
 
 /// `.plabel` — the ID label as it prints (FR-3.1): part number, description,
-/// invoice, GRN quantity, GRN date, a scannable QR and a Code 128 barcode.
+/// invoice, GRN quantity, GRN date, packer, packing date and a scannable QR.
+/// No barcode and no vendor name: the QR is the one code the floor scans.
 ///
-/// The QR modules and the barcode bar widths come from the server, which is the
+/// The QR modules come from the server, which is the
 /// same code that draws the PDF — so what a supervisor approves on screen is
 /// what the printer produces, rather than two implementations that agree today.
 class LabelCard extends StatelessWidget {
@@ -58,41 +59,45 @@ class LabelCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 6),
-                  // A Wrap, not a Row: the three captions sit on one line at the
-                  // 330px the label is designed at, and flow onto a second
-                  // rather than overflowing if `width` is set narrower.
+                  /* A Wrap, not a Row: the captions sit on as few lines as the
+                     width allows and flow onto another rather than overflowing,
+                     which is the same rule the PDF follows — it fits three
+                     columns beside the code on the 100×60 stock and two on the
+                     70×40, and wraps the rest onto a second row.
+
+                     Packer and packing date are what the label can know rather
+                     than what it would like to: the sheet is printed before the
+                     line reaches a bench, so the packer is whoever staffs the
+                     tables it has been allocated to, and the date is the
+                     shift's. Neither prints until the line is allocated,
+                     because a blank is honest where a guess is not. */
                   Wrap(spacing: 10, runSpacing: 4, children: [
                     _Field('INVOICE', l.invoiceNo),
-                    // This pack's own quantity, which is the whole GRN quantity
-                    // unless the line was split by MOQ.
-                    _Field('QTY', '${nf(u?.qty ?? l.grnQty)} ${l.uom}'),
+                    /* This pack's own quantity, which is the whole GRN quantity
+                       unless the line was split by MOQ. Which pack it is
+                       belongs on this caption, because this is the number it
+                       qualifies. */
+                    _Field(
+                      u != null && u.isSplit ? 'QTY (${u.marker.toUpperCase()})' : 'QTY',
+                      '${nf(u?.qty ?? l.grnQty)} ${l.uom}',
+                    ),
                     _Field('GRN DATE', fmtD(l.grnDate)),
+                    _Field('PACKER', l.packer ?? '—'),
+                    _Field('PACKED ON', l.packedOn == null ? '—' : fmtD(l.packedOn!)),
+                    // FR-3.1 still wants the GRN quantity on the label, so when
+                    // QTY is only this pack's share, both numbers are printed.
+                    if (u != null && u.isSplit) _Field('GRN TOTAL', '${nf(l.grnQty)} ${l.uom}'),
                   ]),
-                  // FR-3.1 still wants the GRN quantity on the label, so when
-                  // QTY is only this pack's share, both numbers are printed.
-                  if (u != null && u.isSplit) ...[
-                    const SizedBox(height: 4),
-                    Text('${u.marker}  ·  GRN ${nf(l.grnQty)} ${l.uom}',
-                        style: body(size: 10, weight: FontWeight.w800, color: const Color(0xFF14091F)),
-                        maxLines: 1, overflow: TextOverflow.ellipsis),
-                  ],
                 ]),
               ),
               const SizedBox(width: 10),
               _Qr(modules: u?.qr ?? const [], size: 62),
             ]),
             const SizedBox(height: 6),
-            Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              Expanded(
-                child: Text(l.vendor,
-                    style: body(size: 11, color: const Color(0xFF555555)),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
-              ),
-              Text('SPD PRE-PACK', style: body(size: 11, color: const Color(0xFF555555))),
-            ]),
-            const SizedBox(height: 6),
-            SizedBox(height: 26, child: _Barcode(widths: u?.barcode ?? const [])),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Text('SPD PRE-PACK', style: body(size: 11, color: const Color(0xFF555555))),
+            ),
           ]),
         ),
       ]),
@@ -141,13 +146,18 @@ class _QrPainter extends CustomPainter {
     if (modules.isEmpty) return;
     final n = modules.length;
     final cell = size.width / n;
+    // A hair of overlap, so antialiasing does not leave white seams between
+    // modules and make the code harder to read. It is a fraction of a cell
+    // rather than a flat 0.4: the server sends 25 modules for a short payload
+    // but 29 or 33 for a long one, and a flat bleed would dilate the larger
+    // code half again as much — a QR that prints too heavy stops scanning.
+    // At 25 modules this is 0.397, which is what it has always drawn.
+    final bleed = cell * 0.16;
     final p = Paint()..color = const Color(0xFF111111);
     for (var r = 0; r < n; r++) {
       for (var c = 0; c < modules[r].length; c++) {
         if (modules[r][c]) {
-          // A hair of overlap, so antialiasing does not leave white seams
-          // between modules and make the code harder to read.
-          canvas.drawRect(Rect.fromLTWH(c * cell, r * cell, cell + 0.4, cell + 0.4), p);
+          canvas.drawRect(Rect.fromLTWH(c * cell, r * cell, cell + bleed, cell + bleed), p);
         }
       }
     }
@@ -155,38 +165,4 @@ class _QrPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_QrPainter old) => old.modules != modules;
-}
-
-class _Barcode extends StatelessWidget {
-  const _Barcode({required this.widths});
-
-  final List<int> widths;
-
-  @override
-  Widget build(BuildContext context) =>
-      SizedBox.expand(child: CustomPaint(painter: _BarcodePainter(widths)));
-}
-
-class _BarcodePainter extends CustomPainter {
-  _BarcodePainter(this.widths);
-
-  final List<int> widths;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (widths.isEmpty) return;
-    final total = widths.fold<int>(0, (s, w) => s + w);
-    final unit = size.width / total;
-    final p = Paint()..color = const Color(0xFF111111);
-    var x = 0.0;
-    for (var i = 0; i < widths.length; i++) {
-      final w = widths[i] * unit;
-      // Code 128 alternates bar, space, bar, space… starting with a bar.
-      if (i.isEven) canvas.drawRect(Rect.fromLTWH(x, 0, w, size.height), p);
-      x += w;
-    }
-  }
-
-  @override
-  bool shouldRepaint(_BarcodePainter old) => old.widths != widths;
 }
