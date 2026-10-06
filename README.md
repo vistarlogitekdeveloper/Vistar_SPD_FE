@@ -267,3 +267,49 @@ so the mark on screen is byte-for-byte the approved one.
   later. `sharedPrefsProvider` is deliberately nullable: if storage is
   unavailable — a private window, a locked profile, a platform whose plugin did
   not register — the app still starts and simply forgets the choice.
+
+## Usage analytics (event tracker)
+
+`lib/core/telemetry.dart`, using the in-house `vistar_event_tracker` SDK
+(vendored in `packages/`, see its `VENDORED.md`). Read in the Platform Console
+under Analytics > Event tracker.
+
+**Off unless the build gets both `ET_APP_ID` and `ET_WRITE_KEY`**; without them
+nothing is initialised, the telemetry code is tree-shaken out of the web build
+and the console behaves exactly as before. To switch it on:
+
+1. Register the app as `spd_app` in the Platform Console, Settings > Event
+   tracker, and take its write key (it only lets a client append events, so it
+   may ship in the app).
+2. Add two defines to every release build, next to `SPD_API` (paste the key
+   with no leading space or newline):
+
+```bash
+flutter build web --release --no-web-resources-cdn --dart-define=SPD_API=https://<host>/api/v1/spd \
+  --dart-define=ET_APP_ID=spd_app --dart-define=ET_WRITE_KEY=wk_...
+flutter build apk --release --dart-define=SPD_API=https://<host>/api/v1/spd \
+  --dart-define=ET_APP_ID=spd_app --dart-define=ET_WRITE_KEY=wk_...
+```
+
+(and the same two on `flutter build windows`). This repository has no CI or
+hosted build of its own: whoever builds the web bundle, the table-tablet APK or
+the supervisor-station build adds them there. If a hosted build (Cloudflare
+Workers Builds or Pages) is set up later, put `ET_APP_ID` and `ET_WRITE_KEY` in
+its build variables and append
+` --dart-define=ET_APP_ID=$ET_APP_ID --dart-define=ET_WRITE_KEY=$ET_WRITE_KEY`
+to its `flutter build web` command.
+
+Events go to the host of `SPD_API` (a UAT build reports to UAT);
+`ET_BASE_URL` overrides it.
+
+Sent: screen views by route (`/lines`, `/my/pack`; any value in a path becomes
+`:id` / `:ref`); sign-in / sign-out, the user as `spd:<pseudonym>` (a digest of
+the login id, because an SPD login id is made from the person's name) with
+their role as the only trait; named actions from successful writes
+(`grn_uploaded`, `label_printed`, `line_allocated`, `packing_started`,
+`packing_submitted`, `shift_finalised`, ... see `_actions`); failed API calls
+(5xx / no connection) and client errors by type. Never sent: request or
+response bodies, login ids, names, employee codes, emails, PINs, part or
+invoice numbers, vendor names, line / label / batch / table ids, quantities or
+remarks. Nothing is awaited by a screen, a packing submission, a sign-in or a
+sign-out; start-up waits at most 2 s; the event queue is capped at 200.

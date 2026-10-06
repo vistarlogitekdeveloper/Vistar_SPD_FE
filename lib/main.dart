@@ -5,10 +5,15 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app.dart';
+import 'core/telemetry.dart';
 import 'data/providers.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Usage analytics: off unless the build carries ET_APP_ID + ET_WRITE_KEY
+  // (core/telemetry.dart). Waits at most 2 s, never throws.
+  await Telemetry.init();
 
   // The three typefaces ship in assets/google_fonts/. Refusing the runtime
   // fetch is the point of bundling them: the SRS puts this console on the

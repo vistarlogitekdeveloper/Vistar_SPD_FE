@@ -34,6 +34,14 @@ dependencies:
   # remembers the light / dark choice between sessions
   shared_preferences: ^2.5.5
 
+  # ---------- Usage analytics ----------
+  # The in-house event tracker (Platform Console > Analytics > Event tracker).
+  # Vendored: the SDK repository is private, so a CI or Cloudflare build cannot
+  # fetch it (packages/vistar_event_tracker/VENDORED.md). Off unless the build
+  # gets ET_APP_ID + ET_WRITE_KEY (lib/core/telemetry.dart).
+  vistar_event_tracker:
+    path: packages/vistar_event_tracker
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
