@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/api.dart';
+import '../core/telemetry.dart';
 import '../models/models.dart';
 import 'repository.dart';
 
@@ -75,6 +76,10 @@ class SessionNotifier extends Notifier<Session> {
       final repo = ref.read(repositoryProvider);
       final res = await repo.login(userId: userId, password: password, pin: pin);
       ref.read(apiClientProvider).setToken(res.token);
+      // Usage analytics, before the state change so the screen it leads to is
+      // already theirs: a pseudonym of the user id and the role only, never
+      // the employee code or name. Fire and forget.
+      Telemetry.signedIn(userId: res.user.id, role: res.user.role);
       state = Session(user: res.user, token: res.token);
       return true;
     } on ApiException catch (e) {
@@ -84,6 +89,8 @@ class SessionNotifier extends Notifier<Session> {
   }
 
   Future<void> signOut() async {
+    // Not awaited: sign-out never waits for analytics.
+    Telemetry.signedOut();
     await ref.read(repositoryProvider).logout();
     ref.read(apiClientProvider).setToken(null);
     state = const Session();
