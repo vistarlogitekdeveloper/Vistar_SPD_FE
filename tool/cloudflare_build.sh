@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 #
-# Cloudflare Pages build for the SPD console.
+# Cloudflare build for the SPD console.
 #
-# Pages' build image ships Node and Python but no Flutter SDK, so this fetches a
-# pinned one, builds the web bundle, and leaves it in build/web — the directory
-# Pages is configured to publish.
+# The build image ships Node and Python but no Flutter SDK, so this fetches a
+# pinned one, builds the web bundle, and leaves it in build/web.
 #
-# The dashboard settings that go with this script:
+# This is the *build* half only. The deploy is `npx wrangler deploy`, and which
+# directory it ships is decided by wrangler.jsonc at the repo root — not by
+# anything here and not by the dashboard. Left to auto-detect, wrangler picks
+# the source `web/` folder and deploys the Flutter template with no app in it.
 #
-#   Framework preset         None
-#   Build command            bash tool/cloudflare_build.sh
-#   Build output directory   build/web
+#   Build command    bash tool/cloudflare_build.sh
+#   Deploy command   npx wrangler deploy
 #
 # SPD_API is the full API root the bundle is compiled against. Flutter resolves
 # --dart-define at build time, not at runtime, so changing where the API lives

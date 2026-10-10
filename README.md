@@ -44,17 +44,17 @@ build points at `http://localhost:4100/api` and an Android build at
 build that was never told where its API is says so in the connection error
 rather than failing silently.
 
-## Deploying the web console (Cloudflare Pages)
+## Deploying the web console (Cloudflare)
 
-The repo carries everything Pages needs; the only manual step is connecting it
-once in the dashboard.
+Deployed as a **Worker serving static assets** — `npx wrangler deploy`, driven
+by the committed `wrangler.jsonc`. Not a classic Pages project; the two differ
+in ways that matter below.
 
 | Setting | Value |
 |---|---|
-| Framework preset | **None** |
 | Build command | `bash tool/cloudflare_build.sh` |
-| Build output directory | `build/web` |
-| Root directory | *(leave blank — the repo root is this project)* |
+| Deploy command | `npx wrangler deploy` |
+| Output / assets directory | `build/web` — set in `wrangler.jsonc`, **not** the dashboard |
 
 Optional environment variables, both with working defaults:
 
@@ -64,25 +64,38 @@ Optional environment variables, both with working defaults:
 | `FLUTTER_VERSION` | `3.41.7` | The SDK tag the build fetches |
 
 `SPD_API` is resolved by `--dart-define` **at build time**, so pointing the
-console at a different API means a redeploy, not a dashboard toggle. Set it per
-environment if you give the preview branch its own backend.
+console at a different API means a redeploy, not a dashboard toggle.
 
-Three things in the repo make this work, and each is load-bearing:
+### The three files that make this work
 
-- **`tool/cloudflare_build.sh`** — the Pages image has no Flutter SDK, so the
+- **`tool/cloudflare_build.sh`** — the build image has no Flutter SDK, so the
   script fetches a pinned one into `.flutter-sdk/` (gitignored) and builds with
   `--no-web-resources-cdn`. That flag is not sticky; dropping it sends the
   engine back to `www.gstatic.com` for CanvasKit and the console stops working
   for any device without a route off the LAN.
-- **`web/_redirects`** — go_router drives real paths, so a refresh on `/review`
-  asks Cloudflare for a file that was never built. The rule serves the app
-  shell with a 200 so the address bar keeps the route.
-- **`web/_headers`** — `assets/` and `canvaskit/` are content-hashed and pinned
-  for a year; the shell, bootstrap, service worker and `main.dart.js` are not,
-  and are sent `no-cache` so a deploy actually reaches the floor.
 
-The first build on a cold cache spends a couple of minutes cloning the SDK
-before Flutter starts.
+- **`wrangler.jsonc`** — pins `assets.directory` to `build/web` and sets
+  `not_found_handling: "single-page-application"` so go_router's real paths
+  resolve. Both halves are load-bearing, and each failed a real deploy:
+
+  - Without the pinned directory, wrangler auto-detects and picks the *source*
+    `web/` folder. That is the Flutter template — 18 files, no `main.dart.js`,
+    no `assets/`, no `canvaskit/`. The deploy *succeeds* and serves a blank
+    page, which is the worst way for this to go wrong.
+  - SPA fallback has to be this key rather than a `/* /index.html 200` line in
+    `_redirects`. Workers rejects that rule at the API with *"Infinite loop
+    detected in this rule"*: default html_handling strips `/index` and `.html`
+    from the target, which re-enters the same rule. The rule is fine on classic
+    Pages and fatal here — worth knowing if this ever moves back.
+
+- **`web/_headers`** — `assets/` and `canvaskit/` are content-hashed and pinned
+  for a year; the shell, bootstrap, service worker and `main.dart.js` are
+  regenerated under the same names and are sent `no-cache`, so a deploy
+  actually reaches the floor instead of sitting behind a stale cache.
+
+The first build on a cold cache spends roughly ninety seconds cloning the SDK
+and downloading the Dart toolchain before Flutter starts; a full run is about
+three minutes.
 
 ## Screens
 

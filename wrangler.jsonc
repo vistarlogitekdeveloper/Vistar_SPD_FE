@@ -1,0 +1,22 @@
+{
+  // Deployed as a Worker serving static assets (`npx wrangler deploy`), not as
+  // a classic Pages project. Committing this file is what stops wrangler
+  // guessing: left to auto-detect it picked the *source* `web/` folder — the
+  // Flutter template — and shipped 18 files with no main.dart.js, no assets and
+  // no canvaskit. The site came up blank rather than failing loudly.
+  "name": "vistar-spd-fe",
+  "compatibility_date": "2026-10-06",
+  "observability": { "enabled": true },
+
+  "assets": {
+    // What tool/cloudflare_build.sh produces. Not `web/`.
+    "directory": "build/web",
+
+    // go_router drives real paths, so /review must serve the app shell rather
+    // than 404. This replaces a `/* /index.html 200` line in _redirects, which
+    // Workers rejects outright: default html_handling strips `/index` and
+    // `.html` from the target, which re-enters the same rule, and the API
+    // refuses the deploy with "Infinite loop detected in this rule".
+    "not_found_handling": "single-page-application"
+  }
+}
