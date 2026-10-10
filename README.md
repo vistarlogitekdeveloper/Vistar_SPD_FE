@@ -47,14 +47,14 @@ rather than failing silently.
 ## Deploying the web console (Cloudflare)
 
 Deployed as a **Worker serving static assets** — `npx wrangler deploy`, driven
-by the committed `wrangler.jsonc`. Not a classic Pages project; the two differ
+by the committed `wrangler.json`. Not a classic Pages project; the two differ
 in ways that matter below.
 
 | Setting | Value |
 |---|---|
 | Build command | `bash tool/cloudflare_build.sh` |
 | Deploy command | `npx wrangler deploy` |
-| Output / assets directory | `build/web` — set in `wrangler.jsonc`, **not** the dashboard |
+| Output / assets directory | `build/web` — set in `wrangler.json`, **not** the dashboard |
 
 Optional environment variables, both with working defaults:
 
@@ -74,7 +74,7 @@ console at a different API means a redeploy, not a dashboard toggle.
   engine back to `www.gstatic.com` for CanvasKit and the console stops working
   for any device without a route off the LAN.
 
-- **`wrangler.jsonc`** — pins `assets.directory` to `build/web` and sets
+- **`wrangler.json`** — pins `assets.directory` to `build/web` and sets
   `not_found_handling: "single-page-application"` so go_router's real paths
   resolve. Both halves are load-bearing, and each failed a real deploy:
 
@@ -87,6 +87,12 @@ console at a different API means a redeploy, not a dashboard toggle.
     detected in this rule"*: default html_handling strips `/index` and `.html`
     from the target, which re-enters the same rule. The rule is fine on classic
     Pages and fatal here — worth knowing if this ever moves back.
+  - Keep it strict JSON — no comments, and `.json` rather than `.jsonc`.
+    Wrangler itself reads JSONC happily, so `wrangler deploy --dry-run` passes
+    locally either way. Cloudflare's build system parses this file to work out
+    the build *before* it starts a container, and a commented file failed there
+    instantly: a check run that began and ended in the same second, with no log
+    to read, because nothing had run yet.
 
 - **`web/_headers`** — `assets/` and `canvaskit/` are content-hashed and pinned
   for a year; the shell, bootstrap, service worker and `main.dart.js` are
