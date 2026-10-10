@@ -6,3 +6,4 @@
 *.sh        text eol=lf
 _redirects  text eol=lf
 _headers    text eol=lf
+wrangler.json text eol=lf
