@@ -1,0 +1,8 @@
+# Cloudflare Pages builds on Linux. A CRLF in the build script makes bash fail
+# with "bad interpreter" — an error that never mentions line endings, and which
+# only appears on the deploy, never locally. Git normalises these on commit here
+# only because core.autocrlf happens to be set; pin them so a contributor
+# without that setting cannot break the build by cloning and committing.
+*.sh        text eol=lf
+_redirects  text eol=lf
+_headers    text eol=lf
