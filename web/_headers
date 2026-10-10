@@ -1,0 +1,17 @@
+# Flutter content-hashes what it puts in assets/ and canvaskit/, so those are
+# safe to pin forever. Everything the build regenerates under the same name —
+# the shell, the bootstrap, the service worker, main.dart.js — must not be, or
+# a deploy leaves tablets on the shop floor running last week's bundle until
+# someone clears their cache.
+/index.html
+  Cache-Control: no-cache
+/flutter_bootstrap.js
+  Cache-Control: no-cache
+/flutter_service_worker.js
+  Cache-Control: no-cache
+/main.dart.js
+  Cache-Control: no-cache
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+/canvaskit/*
+  Cache-Control: public, max-age=31536000, immutable

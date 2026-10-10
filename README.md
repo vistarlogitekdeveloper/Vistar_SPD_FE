@@ -44,6 +44,46 @@ build points at `http://localhost:4100/api` and an Android build at
 build that was never told where its API is says so in the connection error
 rather than failing silently.
 
+## Deploying the web console (Cloudflare Pages)
+
+The repo carries everything Pages needs; the only manual step is connecting it
+once in the dashboard.
+
+| Setting | Value |
+|---|---|
+| Framework preset | **None** |
+| Build command | `bash tool/cloudflare_build.sh` |
+| Build output directory | `build/web` |
+| Root directory | *(leave blank — the repo root is this project)* |
+
+Optional environment variables, both with working defaults:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `SPD_API` | `https://api.vistarlogitek.com/api/v1/spd` | The API root compiled into the bundle |
+| `FLUTTER_VERSION` | `3.41.7` | The SDK tag the build fetches |
+
+`SPD_API` is resolved by `--dart-define` **at build time**, so pointing the
+console at a different API means a redeploy, not a dashboard toggle. Set it per
+environment if you give the preview branch its own backend.
+
+Three things in the repo make this work, and each is load-bearing:
+
+- **`tool/cloudflare_build.sh`** — the Pages image has no Flutter SDK, so the
+  script fetches a pinned one into `.flutter-sdk/` (gitignored) and builds with
+  `--no-web-resources-cdn`. That flag is not sticky; dropping it sends the
+  engine back to `www.gstatic.com` for CanvasKit and the console stops working
+  for any device without a route off the LAN.
+- **`web/_redirects`** — go_router drives real paths, so a refresh on `/review`
+  asks Cloudflare for a file that was never built. The rule serves the app
+  shell with a 200 so the address bar keeps the route.
+- **`web/_headers`** — `assets/` and `canvaskit/` are content-hashed and pinned
+  for a year; the shell, bootstrap, service worker and `main.dart.js` are not,
+  and are sent `no-cache` so a deploy actually reaches the floor.
+
+The first build on a cold cache spends a couple of minutes cloning the SDK
+before Flutter starts.
+
 ## Screens
 
 | Screen | Route | Covers |

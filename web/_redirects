@@ -1,0 +1,8 @@
+# go_router drives real paths (/upload, /lines, /review), so a hard refresh or a
+# pasted deep link asks Cloudflare for a file that was never built. Hand those
+# requests the app shell instead and let the router read the URL.
+#
+# Pages matches real static files first, so this never shadows main.dart.js,
+# assets or canvaskit. The 200 (rather than a 302) keeps the address bar on the
+# route the user actually asked for.
+/*    /index.html    200
