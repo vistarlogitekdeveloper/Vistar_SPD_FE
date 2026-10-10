@@ -53,7 +53,7 @@ in ways that matter below.
 | Setting | Value |
 |---|---|
 | Build command | `bash tool/cloudflare_build.sh` |
-| Deploy command | `npx wrangler deploy` |
+| Deploy command | `npx wrangler deploy` on the production branch, `npx wrangler preview` on any other |
 | Output / assets directory | `build/web` — set in `wrangler.json`, **not** the dashboard |
 
 Optional environment variables, both with working defaults:
@@ -93,6 +93,13 @@ console at a different API means a redeploy, not a dashboard toggle.
     the build *before* it starts a container, and a commented file failed there
     instantly: a check run that began and ended in the same second, with no log
     to read, because nothing had run yet.
+  - Keep the `previews` block, even though it is empty. Workers Builds runs
+    `wrangler deploy` for the production branch and `wrangler preview` for
+    every other one, and `preview` refuses to start without it:
+    *"Your Wrangler configuration is missing a `previews` block"*. The
+    production deploy never needs it, so a config that works perfectly on main
+    fails on every pull request — and it fails after a full three-minute build,
+    at the last step.
 
 - **`web/_headers`** — `assets/` and `canvaskit/` are content-hashed and pinned
   for a year; the shell, bootstrap, service worker and `main.dart.js` are
