@@ -28,7 +28,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _pass = TextEditingController(text: 'vistar@2026');
   String _role = 'supervisor';
   String? _memberId;
+  String? _tableNo;
   List<Map<String, dynamic>> _members = const [];
+  List<Map<String, dynamic>> _tables = const [];
   bool _busy = false;
   String? _error;
 
@@ -47,6 +49,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   /// FR-5.1 — the member picker is filled before anyone signs in, so a shop-floor
   /// operator selects their name instead of typing a login ID.
+  ///
+  /// The seating is fetched with it. A member picks their name and then the
+  /// table they are on today: those are two questions now, because members
+  /// rotate and the table is the Supervisor's decision for this shift rather
+  /// than a fixed property of the person.
   Future<void> _loadMembers() async {
     try {
       final list = await ref.read(repositoryProvider).members();
@@ -58,6 +65,26 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     } catch (_) {
       // The roster is a convenience; a member can still type their ID.
     }
+    try {
+      final seating = await ref.read(repositoryProvider).signInTables();
+      if (!mounted) return;
+      setState(() {
+        _tables = seating.tables;
+        _tableNo = _tableFor(_memberId);
+      });
+    } catch (_) {
+      // Without the seating a member can still sign in: the server resolves
+      // their table, exactly as it did before there was a picker for it.
+    }
+  }
+
+  /// The table the Supervisor has put this member on, if any.
+  String? _tableFor(String? memberId) {
+    if (memberId == null) return null;
+    for (final t in _tables) {
+      if ('${t['member_id']}' == memberId) return '${t['table_no']}';
+    }
+    return null;
   }
 
   Future<void> _signIn() async {
@@ -81,15 +108,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     // whichever it was given — so the shorter, all-digit entry is offered as a
     // PIN and anything else as a password.
     final looksLikePin = isMember && _pass.text.length <= 6 && int.tryParse(_pass.text) != null;
+    final table = isMember ? _tableNo : null;
     var ok = await ref.read(sessionProvider.notifier).signIn(
           userId: id,
           password: looksLikePin ? null : _pass.text,
           pin: looksLikePin ? _pass.text : null,
+          tableNo: table,
         );
     if (!ok && isMember && looksLikePin) {
       // Fall back to treating it as a password rather than telling a member
       // their PIN is wrong when the account simply has no PIN set.
-      ok = await ref.read(sessionProvider.notifier).signIn(userId: id, password: _pass.text);
+      ok = await ref
+          .read(sessionProvider.notifier)
+          .signIn(userId: id, password: _pass.text, tableNo: table);
     }
 
     if (!mounted) return;
@@ -209,7 +240,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           DropdownMenuItem(
                             value: '${m['id']}',
                             child: Text(
-                              '${m['name']} · ${m['emp_code']}${m['table_no'] != null ? ' · ${m['table_no']}' : ''}',
+                              '${m['name']} · ${m['emp_code']}',
                               style: body(size: 13.5),
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -218,9 +249,40 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       onChanged: (v) => setState(() {
                         _memberId = v;
                         _user.text = v ?? '';
+                        // Follow them to wherever they are seated today.
+                        _tableNo = _tableFor(v) ?? _tableNo;
                       }),
                     ),
                   ),
+
+                // The table they are working at this shift. Separate from the
+                // name because members rotate: the seating is the Supervisor's
+                // for the open shift, not a fixed property of the person. It
+                // defaults to wherever they are seated, and the server refuses
+                // a table they are not actually on.
+                if (isMember && _tables.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Field(
+                    label: 'Table',
+                    child: SpdDropdown<String>(
+                      value: _tableNo,
+                      items: [
+                        for (final t in _tables)
+                          DropdownMenuItem(
+                            value: '${t['table_no']}',
+                            child: Text(
+                              t['member_name'] == null
+                                  ? '${t['table_no']} · unassigned'
+                                  : '${t['table_no']} · ${t['member_name']}',
+                              style: body(size: 13.5),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (v) => setState(() => _tableNo = v),
+                    ),
+                  ),
+                ],
 
                 if (_error != null) ...[
                   AlertBox(tone: AlertTone.bad, title: 'Sign in failed', message: _error!),

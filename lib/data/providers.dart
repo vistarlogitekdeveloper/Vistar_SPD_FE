@@ -70,11 +70,17 @@ class SessionNotifier extends Notifier<Session> {
   @override
   Session build() => const Session();
 
-  Future<bool> signIn({required String userId, String? password, String? pin}) async {
+  Future<bool> signIn({
+    required String userId,
+    String? password,
+    String? pin,
+    String? tableNo,
+  }) async {
     state = state.copyWith(loading: true, clearError: true);
     try {
       final repo = ref.read(repositoryProvider);
-      final res = await repo.login(userId: userId, password: password, pin: pin);
+      final res = await repo.login(
+        userId: userId, password: password, pin: pin, tableNo: tableNo);
       ref.read(apiClientProvider).setToken(res.token);
       // Usage analytics, before the state change so the screen it leads to is
       // already theirs: a pseudonym of the user id and the role only, never
@@ -255,6 +261,23 @@ final grnBatchesProvider = FutureProvider<List<GrnBatch>>((ref) {
 final tablesProvider = FutureProvider<List<TableStat>>((ref) => _scoped(ref, (r, s) => r.tables(s)));
 
 final allocationsProvider = FutureProvider<List<Allocation>>((ref) => _scoped(ref, (r, s) => r.allocations(s)));
+
+/// Who is on which table for a shift, and the roster to choose from.
+typedef Seating = ({
+  Map<String, dynamic> shift,
+  bool seated,
+  List<Map<String, dynamic>> members,
+  List<Map<String, dynamic>> tables,
+});
+
+/// The seating for the shift on screen.
+///
+/// Separate from [tablesProvider], which is the live status board: that answers
+/// "how is each table doing", this answers "who is standing at it". They move
+/// on different clocks — the board every few seconds, the seating only when a
+/// Supervisor rearranges the floor.
+final seatingProvider =
+    FutureProvider<Seating>((ref) => _scoped(ref, (r, s) => r.shiftAssignments(s)));
 
 final labelLogProvider = FutureProvider<List<LabelPrint>>((ref) => _scoped(ref, (r, s) => r.labelLog(s)));
 

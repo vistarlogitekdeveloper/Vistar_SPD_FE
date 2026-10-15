@@ -91,6 +91,41 @@ class _Body extends ConsumerWidget {
       ]),
       const SizedBox(height: 18),
 
+      // The backlog, across shifts rather than just this one. Everything above
+      // describes the shift on screen; a GRN left unfinished on an earlier
+      // shift would never appear there, and it is the one most worth chasing.
+      // Shown to whoever can reach the dashboard at all.
+      if (data.pendingGrns.isNotEmpty) ...[
+        SectionTitle(
+          'GRNs still to complete',
+          trailing: '${data.pendingGrns.length} open · oldest first · all shifts',
+        ),
+        SpdTable(
+          maxHeight: 260,
+          emptyMessage: 'Every GRN uploaded so far is fully packed.',
+          columns: const [
+            SpdCol('GRN', width: 128),
+            SpdCol('File', width: 220),
+            SpdCol('Shift', width: 150),
+            SpdCol('Date', width: 104),
+            SpdCol('Lines left', right: true, width: 100),
+            SpdCol('Pending qty', right: true, width: 112),
+          ],
+          rows: [
+            for (final g in data.pendingGrns)
+              SpdRow([
+                Text('${g['batch_id']}', style: body(size: 13)),
+                Text('${g['file_name']}', style: body(size: 13), overflow: TextOverflow.ellipsis),
+                Text('${g['shift_label']}', style: body(size: 13), overflow: TextOverflow.ellipsis),
+                Text('${g['shift_date']}', style: body(size: 13)),
+                Text('${g['lines_pending']} / ${g['lines']}', style: body(size: 13)),
+                Text(nf(g['pending_qty']), style: body(size: 13)),
+              ]),
+          ],
+        ),
+        const SizedBox(height: 18),
+      ],
+
       SplitPane(
         sideFirst: true,
         sideWidth: 320,

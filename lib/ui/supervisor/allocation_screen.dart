@@ -9,6 +9,149 @@ import '../../data/providers.dart';
 import '../../models/models.dart';
 import '../widgets/common.dart';
 
+/// Who is on which table for this shift.
+///
+/// Members rotate, so this is a property of the shift rather than of the
+/// person: packing_tables still holds the standing plan — the seat someone
+/// normally takes — and this overrides it for today. A shift nobody has seated
+/// shows that plan and says so, because "these are the usual seats" and "the
+/// Supervisor has been round the floor" are different claims and the screen
+/// should not make the weaker one look like the stronger.
+class SeatingPanel extends ConsumerStatefulWidget {
+  const SeatingPanel({super.key});
+
+  @override
+  ConsumerState<SeatingPanel> createState() => _SeatingPanelState();
+}
+
+class _SeatingPanelState extends ConsumerState<SeatingPanel> {
+  /// table_no -> member id, or null for an empty table. Null overall means
+  /// nothing has been touched since the last load, so the server's answer is
+  /// still what the screen is showing.
+  Map<String, String?>? _draft;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  Widget build(BuildContext context) {
+    final seating = ref.watch(seatingProvider);
+    final locked = ref.watch(currentShiftProvider)?.finalised ?? false;
+
+    return seating.when(
+      skipLoadingOnReload: true,
+      loading: () => const SpdLoader(size: 48),
+      error: (e, _) => ErrorPanel(message: '$e', onRetry: () => ref.invalidate(seatingProvider)),
+      data: (s) {
+        final draft = _draft ?? {
+          for (final t in s.tables) '${t['table_no']}': t['member_id'] as String?,
+        };
+        final dirty = _draft != null;
+
+        return Panel(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const SectionTitle('Who is on which table'),
+            const SizedBox(height: 4),
+            BlurbText([
+              if (s.seated)
+                ('The seating for this shift. Change it whenever members rotate — '
+                    'a member signs in at the table they are given here.', false)
+              else ...[
+                ('Nobody has seated this shift yet', true),
+                (', so these are the standing seats from the table master. '
+                    'Save to make them the seating for this shift.', false),
+              ],
+            ]),
+            const SizedBox(height: 12),
+
+            if (_error != null) ...[
+              AlertBox(tone: AlertTone.bad, title: 'Could not save the seating', message: _error!),
+              const SizedBox(height: 12),
+            ],
+
+            ResponsiveGrid(
+              columns: 4,
+              children: [
+                for (final t in s.tables)
+                  TableCard(
+                    child: Field(
+                      label: '${t['table_no']}',
+                      child: SpdDropdown<String?>(
+                        value: draft['${t['table_no']}'],
+                        items: [
+                          const DropdownMenuItem<String?>(value: null, child: Text('— unassigned —')),
+                          for (final m in s.members)
+                            DropdownMenuItem<String?>(
+                              value: '${m['id']}',
+                              child: Text(
+                                '${m['name']} · ${m['emp_code']}',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ],
+                        onChanged: locked || _saving
+                            ? null
+                            : (v) => setState(() {
+                                  final next = Map<String, String?>.from(draft);
+                                  next['${t['table_no']}'] = v;
+                                  // One member stands at one table: moving them
+                                  // clears wherever they were, which is what the
+                                  // server would otherwise refuse outright.
+                                  if (v != null) {
+                                    for (final k in next.keys.toList()) {
+                                      if (k != '${t['table_no']}' && next[k] == v) next[k] = null;
+                                    }
+                                  }
+                                  _draft = next;
+                                  _error = null;
+                                }),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+
+            if (!locked) ...[
+              const SizedBox(height: 12),
+              Row(children: [
+                GradButton(
+                  label: _saving ? 'Saving…' : 'Save seating',
+                  onPressed: !dirty || _saving ? null : () => _save(draft),
+                ),
+                const SizedBox(width: 10),
+                if (dirty)
+                  GhostButton(
+                    label: 'Discard',
+                    onPressed: _saving ? null : () => setState(() { _draft = null; _error = null; }),
+                  ),
+              ]),
+            ],
+          ]),
+        );
+      },
+    );
+  }
+
+  Future<void> _save(Map<String, String?> draft) async {
+    setState(() { _saving = true; _error = null; });
+    try {
+      final shiftId = ref.read(currentShiftProvider)?.id;
+      if (shiftId == null) throw ApiException('No shift is selected');
+      await ref.read(repositoryProvider).saveShiftAssignments(
+            shiftId,
+            [for (final e in draft.entries) (tableNo: e.key, memberId: e.value)],
+          );
+      if (!mounted) return;
+      setState(() { _draft = null; _saving = false; });
+      // The status board reads the same floor, so refresh both.
+      ref.invalidate(seatingProvider);
+      ref.invalidate(tablesProvider);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() { _error = e.message; _saving = false; });
+    }
+  }
+}
+
 /// UC-03 / FR-4 — map invoice/part lines to packing tables. This is the screen
 /// that replaces the printout handed to each table: the allocated line appears
 /// on that member's own screen instantly.
@@ -46,6 +189,12 @@ class AllocationScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
       ],
+
+      // Who is standing at each table this shift. Above the status board
+      // because it is the thing a Supervisor settles first: the board is
+      // meaningless until the floor is seated.
+      const SeatingPanel(),
+      const SizedBox(height: 16),
 
       // FR-4.3 — the live table status board.
       tables.when(

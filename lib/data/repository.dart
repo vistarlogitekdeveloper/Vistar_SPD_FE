@@ -18,20 +18,47 @@ class SpdRepository {
   /* ------------------------------------------------------------- auth --- */
 
   /// FR-5.1 — the member roster the login picker draws, available before sign-in.
+  ///
+  /// Name and employee code only. The table used to come back here too, from
+  /// the standing seat on packing_tables, and the picker printed it beside the
+  /// name — but members rotate, so that label was often wrong by the time
+  /// anyone read it. Where someone is sitting today comes from
+  /// [signInTables] instead.
   Future<List<Map<String, dynamic>>> members() async {
     final res = await api.get('/auth/members');
     return (res['members'] as List).map(_m).toList();
   }
 
+  /// The seating for the open shift, for the sign-in screen.
+  ///
+  /// Each row is a table, who the Supervisor has put there today, and whether
+  /// that came from the shift's own seating or fell back to the standing plan
+  /// (`from_shift`). Available before anyone signs in, like the roster.
+  Future<({Map<String, dynamic>? shift, List<Map<String, dynamic>> tables})>
+      signInTables() async {
+    final res = await api.get('/auth/tables');
+    return (
+      shift: res['shift'] == null ? null : _m(res['shift']),
+      tables: (res['tables'] as List).map(_m).toList(),
+    );
+  }
+
+  /// [tableNo] is the table a Table Member says they are on for this shift.
+  /// Omitted, the server resolves one from the Supervisor's seating (or the
+  /// standing plan), which is what the builds before this change relied on.
+  /// Sent, it has to be a table this member is actually assigned to — the
+  /// server refuses anything else rather than taking the console's word for it.
   Future<({String token, SpdUser user})> login({
     required String userId,
     String? password,
     String? pin,
+    String? tableNo,
   }) async {
     final res = await api.post('/auth/login', body: {
       'userId': userId,
       if (password != null && password.isNotEmpty) 'password': password,
       if (pin != null && pin.isNotEmpty) 'pin': pin,
+      if (tableNo != null && tableNo.isNotEmpty) 'tableNo': tableNo,
     });
     return (token: '${res['token']}', user: SpdUser(_m(res['user'])));
   }
@@ -301,6 +328,45 @@ class SpdRepository {
     return Shift(_m(res['shift']));
   }
 
+  /* --------------------------------------------------------- seating --- */
+
+  /// Who is on which table for a shift, plus the roster to choose from.
+  ///
+  /// `seated` false means the rows are the standing plan rather than a
+  /// decision anyone has made about today — the screen says so rather than
+  /// implying the Supervisor has already been round the floor.
+  Future<({
+    Map<String, dynamic> shift,
+    bool seated,
+    List<Map<String, dynamic>> members,
+    List<Map<String, dynamic>> tables,
+  })> shiftAssignments(String shiftId) async {
+    final res = await api.get('/shifts/$shiftId/assignments');
+    return (
+      shift: _m(res['shift']),
+      seated: res['seated'] == true,
+      members: (res['members'] as List).map(_m).toList(),
+      tables: (res['tables'] as List).map(_m).toList(),
+    );
+  }
+
+  /// Replace the seating for a shift.
+  ///
+  /// The whole set at once, because rotation is a rearrangement: two members
+  /// swapping tables is one intent, and sending it as two edits would put both
+  /// of them on one table halfway through, which the server refuses.
+  Future<void> saveShiftAssignments(
+    String shiftId,
+    List<({String tableNo, String? memberId})> assignments,
+  ) async {
+    await api.put('/shifts/$shiftId/assignments', body: {
+      'assignments': [
+        for (final a in assignments)
+          {'tableNo': a.tableNo, 'memberId': a.memberId},
+      ],
+    });
+  }
+
   /* -------------------------------------------------------- dashboard --- */
 
   Future<DashboardPage> dashboard(String shiftId) async {
@@ -313,6 +379,7 @@ class SpdRepository {
       lines: _list(res['lines'], GrnLine.new),
       batchId: res['batchId'] as String?,
       hourlyCount: (res['hourlyCount'] as num?)?.toInt() ?? 0,
+      pendingGrns: ((res['pendingGrns'] as List?) ?? const []).map(_m).toList(),
       refreshSeconds: (res['refreshSeconds'] as num?)?.toInt() ?? 60,
       generatedAt: DateTime.now(),
     );
@@ -529,6 +596,7 @@ class DashboardPage {
     required this.lines,
     required this.batchId,
     required this.hourlyCount,
+    required this.pendingGrns,
     required this.refreshSeconds,
     required this.generatedAt,
   });
@@ -539,6 +607,13 @@ class DashboardPage {
   final List<GrnLine> lines;
   final String? batchId;
   final int hourlyCount;
+
+  /// Every GRN still carrying unpacked quantity, oldest first — and across
+  /// shifts, not just the one on screen. A GRN left unfinished yesterday is
+  /// exactly the one that needs chasing today, and a shift-scoped figure is
+  /// the one view that would never show it.
+  final List<Map<String, dynamic>> pendingGrns;
+
   final int refreshSeconds;
   final DateTime generatedAt;
 }

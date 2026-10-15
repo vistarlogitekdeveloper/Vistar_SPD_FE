@@ -145,6 +145,24 @@ void main() {
               lines: lines,
               batchId: 'GRN-0909-01',
               hourlyCount: 3,
+              // One GRN from the PREVIOUS shift, so the backlog panel renders
+              // with the case it exists for: work carried over, which a
+              // shift-scoped figure would never show.
+              pendingGrns: const [
+                {
+                  'batch_id': 'GRN-0809-01',
+                  'file_name': 'grn_08092026.xlsx',
+                  'shift_id': 'A-2026-09-08',
+                  'shift_label': 'A · 08 Sep',
+                  'shift_date': '2026-09-08',
+                  'shift_status': 'Open',
+                  'lines': 12,
+                  'lines_pending': 3,
+                  'grn_qty': 4200,
+                  'packed_qty': 3850,
+                  'pending_qty': 350,
+                },
+              ],
               refreshSeconds: 60,
               generatedAt: DateTime(2026, 9, 9, 12, 44),
             )),
