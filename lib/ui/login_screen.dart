@@ -17,15 +17,22 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
+  /* The chips choose a role. They used to carry a demo account each
+     (sup.rmenon, adm.itcell, mgt.avohra) and fill the password with the one
+     published in this repository, which was convenient against a seeded
+     database and wrong everywhere else: on a real deployment those accounts do
+     not exist, so the form arrived pre-filled with credentials that could only
+     ever be refused — and shipped a known password as the default value in a
+     login box reachable from the internet. */
   static const _roles = [
-    ('supervisor', 'Supervisor', 'GRN, labels, review, MIS', 'sup.rmenon'),
-    ('member', 'Table Member', 'Start & submit packing', null),
-    ('admin', 'Administrator', 'Users, tables, config', 'adm.itcell'),
-    ('viewer', 'Management', 'Dashboard & MIS', 'mgt.avohra'),
+    ('supervisor', 'Supervisor', 'GRN, labels, review, MIS'),
+    ('member', 'Table Member', 'Start & submit packing'),
+    ('admin', 'Administrator', 'Users, tables, config'),
+    ('viewer', 'Management', 'Dashboard & MIS'),
   ];
 
-  final _user = TextEditingController(text: 'sup.rmenon');
-  final _pass = TextEditingController(text: 'vistar@2026');
+  final _user = TextEditingController();
+  final _pass = TextEditingController();
   String _role = 'supervisor';
   String? _memberId;
   String? _tableNo;
@@ -212,7 +219,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   child: LayoutBuilder(builder: (context, c) {
                     final w = (c.maxWidth - 10) / 2;
                     return Wrap(spacing: 10, runSpacing: 10, children: [
-                      for (final (key, title, sub, uid) in _roles)
+                      for (final (key, title, sub) in _roles)
                         SizedBox(width: w, child: _RoleChip(
                           title: title,
                           subtitle: sub,
@@ -220,8 +227,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           onTap: () => setState(() {
                             _role = key;
                             _error = null;
-                            _user.text = uid ?? (_memberId ?? '');
-                            _pass.text = key == 'member' ? '' : 'vistar@2026';
+                            // A Table Member signs in by picking a name, so the
+                            // field follows the picker. Everyone else types
+                            // their own ID into an empty box.
+                            _user.text = key == 'member' ? (_memberId ?? '') : '';
+                            _pass.clear();
                           }),
                         )),
                     ]);

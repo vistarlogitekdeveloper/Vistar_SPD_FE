@@ -40,7 +40,16 @@ class _SeatingPanelState extends ConsumerState<SeatingPanel> {
     return seating.when(
       skipLoadingOnReload: true,
       loading: () => const SpdLoader(size: 48),
-      error: (e, _) => ErrorPanel(message: '$e', onRetry: () => ref.invalidate(seatingProvider)),
+      error: (e, _) {
+        /* A console deployed ahead of its backend gets 404 from the seating
+           endpoints, and so does a shift that does not exist. This panel is
+           additive: the rest of the screen worked before it and must go on
+           working, so a 404 shows nothing rather than an error a Supervisor
+           can do nothing about. Anything else is a real failure and is said
+           out loud. */
+        if (e is ApiException && e.statusCode == 404) return const SizedBox.shrink();
+        return ErrorPanel(message: '$e', onRetry: () => ref.invalidate(seatingProvider));
+      },
       data: (s) {
         final draft = _draft ?? {
           for (final t in s.tables) '${t['table_no']}': t['member_id'] as String?,
