@@ -67,7 +67,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       if (!mounted) return;
       setState(() {
         _members = list;
-        _memberId = list.isEmpty ? null : '${list.first['id']}';
+        // Nobody is chosen for you. The first name in the roster is not the
+        // person standing at the tablet, and pre-selecting it meant a tap on
+        // Sign in signed somebody else in.
       });
     } catch (_) {
       // The roster is a convenience; a member can still type their ID.
@@ -96,7 +98,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   Future<void> _signIn() async {
     final isMember = _role == 'member';
-    final id = isMember ? (_memberId ?? _user.text.trim()) : _user.text.trim();
+    /* Typed wins. The roster is a shortcut for a shop-floor tablet, not the
+       source of truth: if someone has typed an ID, that is the account they
+       mean, and the picker only answers when the field is empty. The two can
+       disagree only because nothing fills the field any more. */
+    final typed = _user.text.trim();
+    final id = typed.isNotEmpty ? typed : (isMember ? (_memberId ?? '') : '');
     if (id.isEmpty) {
       setState(() => _error = 'Enter your user ID, or select your name from the list');
       return;
@@ -197,8 +204,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   label: 'User ID',
                   child: TextField(
                     controller: _user,
-                    enabled: !isMember,
+                    // Editable for every role. It used to be disabled for a
+                    // Table Member, on the assumption that they would always
+                    // pick a name — which left anyone whose name was missing
+                    // from the roster, or whose login id differs from it,
+                    // staring at a field they could not type into.
                     autocorrect: false,
+                    autofillHints: const [],
+                    enableSuggestions: false,
                     style: body(size: 14),
                     onSubmitted: (_) => _signIn(),
                   ),
@@ -230,8 +243,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             // A Table Member signs in by picking a name, so the
                             // field follows the picker. Everyone else types
                             // their own ID into an empty box.
-                            _user.text = key == 'member' ? (_memberId ?? '') : '';
+                            // Cleared, not filled: a different role is a
+                            // different account, and carrying one ID into the
+                            // next sign-in is how the wrong one gets used.
+                            _user.clear();
                             _pass.clear();
+                            _memberId = null;
+                            _tableNo = null;
                           }),
                         )),
                     ]);
@@ -258,8 +276,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ],
                       onChanged: (v) => setState(() {
                         _memberId = v;
-                        _user.text = v ?? '';
-                        // Follow them to wherever they are seated today.
+                        // The User ID field is left alone. It is editable, and
+                        // writing to it under the operator was the autofill
+                        // this screen was asked to stop doing.
                         _tableNo = _tableFor(v) ?? _tableNo;
                       }),
                     ),
