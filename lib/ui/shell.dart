@@ -35,7 +35,6 @@ const navByRole = <String, List<NavGroup>>{
       NavItem('/labels', 'ID Labels', Icons.sell_outlined),
     ]),
     NavGroup('Floor', [
-      NavItem('/allocation', 'Table Allocation', Icons.table_chart_outlined),
       NavItem('/review', 'Review & Finalise', Icons.visibility_outlined),
       NavItem('/hourly', 'Hourly Reports', Icons.mail_outline_rounded),
     ]),

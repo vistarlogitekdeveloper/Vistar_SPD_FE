@@ -15,7 +15,6 @@ import 'ui/reports/audit_screen.dart';
 import 'ui/reports/mis_screen.dart';
 import 'ui/shell.dart';
 import 'ui/splash_screen.dart';
-import 'ui/supervisor/allocation_screen.dart';
 import 'ui/supervisor/dashboard_screen.dart';
 import 'ui/supervisor/grn_upload_screen.dart';
 import 'ui/supervisor/hourly_screen.dart';
@@ -96,7 +95,12 @@ class _SpdAppState extends ConsumerState<SpdApp> {
             GoRoute(path: '/grn', builder: (_, _) => const GrnUploadScreen()),
             GoRoute(path: '/lines', builder: (_, _) => const LinesScreen()),
             GoRoute(path: '/labels', builder: (_, _) => const LabelsScreen()),
-            GoRoute(path: '/allocation', builder: (_, _) => const AllocationScreen()),
+            // Table Allocation was folded into the Lines screen: seating, the
+            // status board and the allocation log moved there, and the list of
+            // unallocated lines it also carried was the same one Lines already
+            // showed. Kept as a redirect rather than deleted so an open tab or
+            // a bookmark lands somewhere useful instead of on a router error.
+            GoRoute(path: '/allocation', redirect: (_, _) => '/lines'),
             GoRoute(path: '/review', builder: (_, _) => const ReviewScreen()),
             GoRoute(path: '/hourly', builder: (_, _) => const HourlyScreen()),
             GoRoute(path: '/mis', builder: (_, _) => const MisScreen()),

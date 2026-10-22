@@ -10,7 +10,7 @@ import '../../data/providers.dart';
 import '../../models/models.dart';
 import '../widgets/common.dart';
 import '../widgets/line_detail.dart';
-import 'allocation_screen.dart' show showAllocateDialog;
+import 'allocation_screen.dart' show AllocationLog, SeatingPanel, TableStatusBoard, showAllocateDialog;
 import 'labels_screen.dart' show showLabelDialog;
 
 /// FR-2 — the imported GRN grouped by invoice, with live packed and pending
@@ -51,14 +51,19 @@ class _LinesScreenState extends ConsumerState<LinesScreen> {
             'preparation step is gone.',
         actions: [
           GhostButton(label: 'Print labels', icon: Icons.sell_outlined, onPressed: () => context.go('/labels')),
-          GradButton(
-            label: 'Allocate tables',
-            icon: Icons.table_chart_outlined,
-            small: true,
-            onPressed: () => context.go('/allocation'),
-          ),
         ],
       ),
+
+      /* The floor, above the lines it is working on. These two were a Table
+         Allocation screen of their own, which also listed unallocated lines —
+         the same work this screen already offered, in a second place that could
+         disagree with it. The list went; these did not, because nothing else
+         seats a member or shows how a table is doing. Allocating stays a row
+         action below, and the log at the foot is how it is undone. */
+      const SeatingPanel(),
+      const SizedBox(height: 16),
+      const TableStatusBoard(),
+      const SizedBox(height: 24),
 
       FilterBar(
         onReset: () {
@@ -232,6 +237,9 @@ class _LinesScreenState extends ConsumerState<LinesScreen> {
           );
         },
       ),
+
+      const SizedBox(height: 24),
+      const AllocationLog(),
     ]);
   }
 }

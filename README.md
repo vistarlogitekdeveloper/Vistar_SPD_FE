@@ -60,7 +60,7 @@ Optional environment variables, both with working defaults:
 
 | Variable | Default | What it does |
 |---|---|---|
-| `SPD_API` | `https://api.vistarlogitek.com/api/v1/spd` | The API root compiled into the bundle |
+| `SPD_API` | `https://uat-api.vistarlogitek.com/api/v1/spd` | The API root compiled into the bundle. UAT by default; set it to `https://api.vistarlogitek.com/api/v1/spd` for a production build |
 | `FLUTTER_VERSION` | `3.41.7` | The SDK tag the build fetches |
 
 `SPD_API` is resolved by `--dart-define` **at build time**, so pointing the

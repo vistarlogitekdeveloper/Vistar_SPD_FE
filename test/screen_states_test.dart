@@ -16,7 +16,6 @@ import 'package:spd_frontend/ui/member/my_work_screen.dart';
 import 'package:spd_frontend/ui/member/pack_screen.dart';
 import 'package:spd_frontend/ui/reports/audit_screen.dart';
 import 'package:spd_frontend/ui/reports/mis_screen.dart';
-import 'package:spd_frontend/ui/supervisor/allocation_screen.dart';
 import 'package:spd_frontend/ui/supervisor/dashboard_screen.dart';
 import 'package:spd_frontend/ui/supervisor/grn_upload_screen.dart';
 import 'package:spd_frontend/ui/supervisor/hourly_screen.dart';
@@ -43,7 +42,9 @@ void main() {
     'GrnUploadScreen': () => const GrnUploadScreen(),
     'LinesScreen': () => const LinesScreen(),
     'LabelsScreen': () => const LabelsScreen(),
-    'AllocationScreen': () => const AllocationScreen(),
+    // AllocationScreen is gone: seating, the status board and the allocation
+    // log moved onto LinesScreen above, and the unallocated-lines list it also
+    // carried was the one LinesScreen already showed. Covered there now.
     'ReviewScreen': () => const ReviewScreen(),
     'HourlyScreen': () => const HourlyScreen(),
     'MisScreen': () => const MisScreen(),

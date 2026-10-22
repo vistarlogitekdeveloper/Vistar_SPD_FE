@@ -41,6 +41,7 @@ class _PartMasterPanelState extends ConsumerState<PartMasterPanel> {
   }
 
   Future<void> _load() async {
+    if (ref.read(sessionProvider).user?.roleKey != 'admin') return;
     try {
       final m = await ref.read(repositoryProvider).partMaster();
       if (!mounted) return;
@@ -82,6 +83,13 @@ class _PartMasterPanelState extends ConsumerState<PartMasterPanel> {
 
   @override
   Widget build(BuildContext context) {
+    /* Administrator only, matching the endpoints. A Supervisor reaching this
+       screen sees nothing here rather than a panel that answers 403 on use:
+       an upload button that cannot upload is worse than no button. */
+    if (ref.watch(sessionProvider).user?.roleKey != 'admin') {
+      return const SizedBox.shrink();
+    }
+
     final s = _summary;
     final r = _result;
     return Panel(

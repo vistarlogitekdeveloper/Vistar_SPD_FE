@@ -164,47 +164,19 @@ class _SeatingPanelState extends ConsumerState<SeatingPanel> {
 /// UC-03 / FR-4 — map invoice/part lines to packing tables. This is the screen
 /// that replaces the printout handed to each table: the allocated line appears
 /// on that member's own screen instantly.
-class AllocationScreen extends ConsumerWidget {
-  const AllocationScreen({super.key});
+/// FR-4.3 — the live table status board.
+///
+/// Mounted on the Lines screen. It used to live on a Table Allocation screen of
+/// its own, alongside a list of unallocated lines that the Lines screen already
+/// showed — the same work offered twice, in two places that could disagree. The
+/// list went; this did not, because nothing else shows how each table is doing.
+class TableStatusBoard extends ConsumerWidget {
+  const TableStatusBoard({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tables = ref.watch(tablesProvider);
-    final lines = ref.watch(linesProvider);
-    final allocs = ref.watch(allocationsProvider);
-    final locked = ref.watch(currentShiftProvider)?.finalised ?? false;
-
-    final unallocated =
-        (lines.value?.lines ?? const <GrnLine>[]).where((l) => l.allocationCount == 0).toList();
-
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      PageHeader(
-        crumb: 'Floor ·',
-        accent: 'Allocation',
-        title: 'Table allocation & status board',
-        blurb: 'Map invoice/part lines to packing tables — the manual printout handed to each '
-            'table is gone; the allocated line appears on that table member’s screen instantly.',
-        actions: [
-          Pill('${unallocated.length} lines unallocated',
-              tone: unallocated.isEmpty ? PillTone.ok : PillTone.amber),
-        ],
-      ),
-
-      if (locked) ...[
-        const AlertBox(
-          tone: AlertTone.warn,
-          title: 'This shift is finalised (BR-06)',
-          message: 'Reopen it from Review & Finalise before changing allocations.',
-        ),
-        const SizedBox(height: 16),
-      ],
-
-      // Who is standing at each table this shift. Above the status board
-      // because it is the thing a Supervisor settles first: the board is
-      // meaningless until the floor is seated.
-      const SeatingPanel(),
-      const SizedBox(height: 16),
-
       // FR-4.3 — the live table status board.
       tables.when(
         skipLoadingOnReload: true,
@@ -247,38 +219,22 @@ class AllocationScreen extends ConsumerWidget {
           ],
         ),
       ),
+    ]);
+  }
+}
 
-      const SizedBox(height: 24),
-      const SectionTitle('Unallocated lines', trailing: 'select a table for each'),
-      SpdTable(
-        columns: const [
-          SpdCol('Invoice', width: 110),
-          SpdCol('Part', width: 130),
-          SpdCol('Description', width: 230),
-          SpdCol('GRN Qty', right: true, width: 110),
-          SpdCol('Vendor', width: 180),
-          SpdCol('', right: true, width: 130),
-        ],
-        rows: [
-          for (final l in unallocated)
-            SpdRow([
-              monoCell(l.invoiceNo),
-              strongCell(l.partNo),
-              cell(l.partDesc),
-              monoCell('${nf(l.grnQty)} ${l.uom}'),
-              cell(l.vendor),
-              GradButton(
-                label: 'Allocate',
-                icon: Icons.table_chart_outlined,
-                small: true,
-                onPressed: locked ? null : () => showAllocateDialog(context, ref, l),
-              ),
-            ]),
-        ],
-        emptyMessage: 'Every line is allocated to a table.',
-      ),
+/// FR-4.1 — what has been allocated, and the only way to undo it.
+///
+/// Also mounted on the Lines screen. Allocating is a row action there; this is
+/// its counterpart, and without it a line sent to the wrong table stays there
+/// for the whole shift.
+class AllocationLog extends ConsumerWidget {
+  const AllocationLog({super.key});
 
-      const SizedBox(height: 24),
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final allocs = ref.watch(allocationsProvider);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       const SectionTitle('Allocation log'),
       allocs.when(
         skipLoadingOnReload: true,
