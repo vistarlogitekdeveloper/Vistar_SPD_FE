@@ -122,6 +122,34 @@ class SpdRepository {
   }
 
 
+  /* ------------------------------------------------------ part master --- */
+
+  /// What the part master holds: the counts a supervisor reads to know the
+  /// upload worked, and a sample to eyeball.
+  Future<({Map<String, dynamic> summary, List<Map<String, dynamic>> sample})>
+      partMaster() async {
+    final res = await api.get('/masters/parts');
+    return (
+      summary: _m(res['summary']),
+      sample: (res['sample'] as List).map(_m).toList(),
+    );
+  }
+
+  /// Replace the part master from a workbook.
+  ///
+  /// Replace, not merge: the master states the whole catalogue, so a part
+  /// dropped from the file has been dropped from the catalogue. Returns the
+  /// counts and any rejected rows, in the same shape the GRN import uses.
+  Future<Map<String, dynamic>> uploadPartMaster({
+    required String filename,
+    required Uint8List bytes,
+  }) async {
+    final form = FormData.fromMap({
+      'file': MultipartFile.fromBytes(bytes, filename: filename),
+    });
+    return _m(await api.upload('/masters/parts', form));
+  }
+
   /* ------------------------------------------------------------ lines --- */
 
   Future<LinesPage> lines({

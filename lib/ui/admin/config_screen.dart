@@ -1,12 +1,138 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api.dart';
+import '../../core/format.dart';
 import '../../core/theme.dart';
 import '../../data/providers.dart';
 import '../../models/models.dart';
 import '../widgets/common.dart';
+
+/// FR-3.5 — the pack size each part is pouched in.
+///
+/// The SAP goods-receipt export carries no MOQ column and never will: it
+/// reports what arrived, not how the floor handles it. Without this master a
+/// GRN prints one label per line and nothing splits, which is the opposite of
+/// what pre-packing is for.
+///
+/// Uploading REPLACES the master. It states the whole catalogue at a point in
+/// time, so a part dropped from the file has been dropped from the catalogue;
+/// merging would leave it answering lookups forever with a pack size nobody
+/// still believes.
+class PartMasterPanel extends ConsumerStatefulWidget {
+  const PartMasterPanel({super.key});
+
+  @override
+  ConsumerState<PartMasterPanel> createState() => _PartMasterPanelState();
+}
+
+class _PartMasterPanelState extends ConsumerState<PartMasterPanel> {
+  Map<String, dynamic>? _summary;
+  Map<String, dynamic>? _result;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final m = await ref.read(repositoryProvider).partMaster();
+      if (!mounted) return;
+      setState(() => _summary = m.summary);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      // A console in front of a backend without migration 210 answers 404.
+      // The panel says nothing rather than showing a failure nobody can act on.
+      if (e.statusCode != 404) setState(() => _error = e.message);
+    }
+  }
+
+  Future<void> _upload() async {
+    final picked = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['xlsx', 'xls', 'csv'],
+      withData: true,
+    );
+    if (picked == null || picked.files.isEmpty) return;
+    final file = picked.files.first;
+    final bytes = file.bytes;
+    if (bytes == null) {
+      setState(() => _error = 'That file could not be read — try selecting it again');
+      return;
+    }
+
+    setState(() { _busy = true; _error = null; _result = null; });
+    try {
+      final res = await ref.read(repositoryProvider)
+          .uploadPartMaster(filename: file.name, bytes: bytes);
+      if (!mounted) return;
+      setState(() { _result = res; _busy = false; });
+      await _load();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() { _error = e.message; _busy = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = _summary;
+    final r = _result;
+    return Panel(
+      title: 'Part master — MOQ (FR-3.5)',
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        BlurbText(const [
+          ('The pack size each part is pouched in. ', false),
+          ('The SAP export does not carry one', true),
+          (', so without this master every GRN line prints a single label and nothing splits. '
+              'Uploading replaces the master.', false),
+        ]),
+        const SizedBox(height: 12),
+
+        if (s != null)
+          KeyValues([
+            ('Parts', nf(s['parts'] ?? 0)),
+            ('With an MOQ', nf(s['with_moq'] ?? 0)),
+            ('Of those, MOQ 1', nf(s['moq_one'] ?? 0)),
+            (
+              'Last updated',
+              s['updated_at'] == null ? 'never uploaded' : '${s['updated_at']}'.split('T').first,
+            ),
+          ]),
+
+        if (_error != null) ...[
+          const SizedBox(height: 12),
+          AlertBox(tone: AlertTone.bad, title: 'Part master', message: _error!),
+        ],
+
+        if (r != null) ...[
+          const SizedBox(height: 12),
+          AlertBox(
+            tone: (r['rejected'] ?? 0) == 0 ? AlertTone.ok : AlertTone.warn,
+            title: '${nf(r['parts'] ?? 0)} parts loaded',
+            message: '${nf(r['withMoq'] ?? 0)} carry an MOQ, ${nf(r['moqOne'] ?? 0)} of them MOQ 1. '
+                'Replaced ${nf(r['replaced'] ?? 0)} previous row(s).'
+                '${(r['rejected'] ?? 0) == 0 ? '' : ' ${nf(r['rejected'])} row(s) rejected.'}',
+          ),
+        ],
+
+        const SizedBox(height: 12),
+        GradButton(
+          label: _busy ? 'Uploading…' : 'Upload MOQ master',
+          icon: Icons.upload_file_rounded,
+          small: true,
+          onPressed: _busy ? null : _upload,
+        ),
+      ]),
+    );
+  }
+}
 
 /// UC-10 / FR-13.2 & NFR-5.1 — tables, label template, email distribution,
 /// exception threshold and reporting intervals, all editable without a release.
@@ -138,6 +264,8 @@ class _ConfigScreenState extends ConsumerState<ConfigScreen> {
                 ),
               ),
             ),
+            const PartMasterPanel(),
+
             Panel(
               title: 'System parameters',
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
