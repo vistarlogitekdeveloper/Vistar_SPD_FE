@@ -1253,6 +1253,12 @@ class _RingPainter extends CustomPainter {
 Widget _maybeFlexible(bool bounded, Widget child) =>
     bounded ? Flexible(child: child) : child;
 
+/// A visible scrollbar, but only when the rows actually have a scroller of
+/// their own. Attaching one to a `NeverScrollableScrollPhysics` list throws.
+Widget _maybeScrollbar(bool bounded, ScrollController c, Widget child) => bounded
+    ? Scrollbar(controller: c, thumbVisibility: true, child: child)
+    : child;
+
 /// One column of a [SpdTable].
 class SpdCol {
   const SpdCol(this.title, {this.right = false, this.width, this.wrap = false});
@@ -1297,13 +1303,28 @@ class SpdTable extends StatefulWidget {
   State<SpdTable> createState() => _SpdTableState();
 }
 
+/// Past this many rows a table stops scrolling with the page and takes its own
+/// scroller.
+///
+/// A dozen rows read best as part of the page: they move with everything
+/// around them and there is no second scrollbar to find. A shift's GRN is not
+/// a dozen rows. An unbounded `ListView` has to `shrinkWrap`, which means
+/// laying out every row to measure the total height — so nothing is lazy, and
+/// 1,532 imported lines cost 12,968ms to first paint against 255ms bounded.
+/// That is the whole of "the app feels buggy after the GRN upload".
+///
+/// Sixty is about three screens of rows: comfortably more than any table that
+/// belongs in the page flow, comfortably less than any that does not.
+const _kInnerScrollAbove = 60;
+
 class _SpdTableState extends State<SpdTable> {
   final _h = ScrollController();
-  int? _hovered;
+  final _v = ScrollController();
 
   @override
   void dispose() {
     _h.dispose();
+    _v.dispose();
     super.dispose();
   }
 
@@ -1353,12 +1374,22 @@ class _SpdTableState extends State<SpdTable> {
         // fills its card rather than leaving a gutter on the right.
         final scale = fits && totalW > 0 ? content / totalW : 1.0;
 
-        // A table with no `maxHeight` shrink-wraps its rows and is almost always
-        // inside a page-level scroll view, so it is laid out with an unbounded
-        // height. A Column that both shrink-wraps and hands a child a flex is a
-        // contradiction the framework asserts on, so the body only takes a flex
-        // when there is a bounded height to divide.
-        final bounded = widget.maxHeight != null;
+        /* A table with no height shrink-wraps its rows and is almost always
+           inside a page-level scroll view, so it is laid out with an unbounded
+           height. A Column that both shrink-wraps and hands a child a flex is
+           a contradiction the framework asserts on, so the body only takes a
+           flex when there is a bounded height to divide.
+
+           A long table bounds itself. See [_kInnerScrollAbove]: the height is
+           a share of the window rather than a constant, so the rows fill a
+           laptop and a shop-floor monitor alike, with a floor under it for the
+           case where the window is tiny and a scroller of three rows would be
+           worse than none. */
+        final auto = widget.maxHeight == null && widget.rows.length > _kInnerScrollAbove
+            ? math.max(420.0, MediaQuery.sizeOf(context).height * 0.58)
+            : null;
+        final maxHeight = widget.maxHeight ?? auto;
+        final bounded = maxHeight != null;
 
         final table = SizedBox(
           width: width,
@@ -1393,58 +1424,60 @@ class _SpdTableState extends State<SpdTable> {
             // tbody
             _maybeFlexible(
               bounded,
-              ListView.builder(
+              // A scroller nobody can see is a table that looks truncated, so
+              // the thumb stays up whenever the rows have their own scroller.
+              _maybeScrollbar(
+                bounded,
+                _v,
+                ListView.builder(
+                controller: bounded ? _v : null,
                 shrinkWrap: !bounded,
                 physics: bounded ? null : const NeverScrollableScrollPhysics(),
                 itemCount: widget.rows.length,
                 itemBuilder: (context, i) {
                   final row = widget.rows[i];
-                  return MouseRegion(
-                    onEnter: (_) => setState(() => _hovered = i),
-                    onExit: (_) => setState(() => _hovered = null),
-                    cursor: row.onTap == null ? MouseCursor.defer : SystemMouseCursors.click,
-                    child: GestureDetector(
-                      onTap: row.onTap,
-                      behavior: HitTestBehavior.opaque,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: _hovered == i ? Brand.surface2 : Colors.transparent,
-                          border: i == widget.rows.length - 1
-                              ? null
-                              : Border(bottom: BorderSide(color: Brand.line)),
-                        ),
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            for (var ci = 0; ci < widget.columns.length; ci++)
-                              SizedBox(
-                                width: _widthOf(widget.columns[ci]) * scale,
-                                child: Padding(
-                                  padding: const EdgeInsets.only(right: 12),
-                                  child: Align(
-                                    alignment: widget.columns[ci].right
-                                        ? Alignment.centerRight
-                                        : Alignment.centerLeft,
-                                    child: ci < row.cells.length ? row.cells[ci] : const SizedBox.shrink(),
-                                  ),
-                                ),
+                  /* The hover tint is the row's own business.
+
+                     It used to be an index on the table's State, so crossing
+                     one row boundary called setState on the table and rebuilt
+                     every row in it to re-tint one. On the dozen-row tables
+                     this started life on that was free. On a shift's GRN it is
+                     not: 1,532 rows cost 1,965ms per mouse-move, which is the
+                     whole table rebuilding twice — once to clear the old tint
+                     and once to set the new one. Measured at 19ms this way. */
+                  return _TableRow(
+                    onTap: row.onTap,
+                    last: i == widget.rows.length - 1,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        for (var ci = 0; ci < widget.columns.length; ci++)
+                          SizedBox(
+                            width: _widthOf(widget.columns[ci]) * scale,
+                            child: Padding(
+                              padding: const EdgeInsets.only(right: 12),
+                              child: Align(
+                                alignment: widget.columns[ci].right
+                                    ? Alignment.centerRight
+                                    : Alignment.centerLeft,
+                                child: ci < row.cells.length ? row.cells[ci] : const SizedBox.shrink(),
                               ),
-                          ],
-                        ),
-                      ),
+                            ),
+                          ),
+                      ],
                     ),
                   );
                 },
+              ),
               ),
             ),
             ],
           ),
         );
 
-        final constrained = widget.maxHeight == null
+        final constrained = maxHeight == null
             ? table
-            : ConstrainedBox(constraints: BoxConstraints(maxHeight: widget.maxHeight!), child: table);
+            : ConstrainedBox(constraints: BoxConstraints(maxHeight: maxHeight), child: table);
 
         return fits
             ? constrained
@@ -1460,6 +1493,45 @@ class _SpdTableState extends State<SpdTable> {
       }),
     );
   }
+}
+
+/// One `.tbl` row, holding its own hover tint.
+///
+/// Small and dull on purpose: it exists so that tinting a row rebuilds that
+/// row and nothing else. See the note at its only call site for what it cost
+/// when the table owned the hover instead.
+class _TableRow extends StatefulWidget {
+  const _TableRow({required this.child, required this.onTap, required this.last});
+
+  final Widget child;
+  final VoidCallback? onTap;
+  final bool last;
+
+  @override
+  State<_TableRow> createState() => _TableRowState();
+}
+
+class _TableRowState extends State<_TableRow> {
+  bool _on = false;
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+        onEnter: (_) => setState(() => _on = true),
+        onExit: (_) => setState(() => _on = false),
+        cursor: widget.onTap == null ? MouseCursor.defer : SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: widget.onTap,
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+            decoration: BoxDecoration(
+              color: _on ? Brand.surface2 : Colors.transparent,
+              border: widget.last ? null : Border(bottom: BorderSide(color: Brand.line)),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+            child: widget.child,
+          ),
+        ),
+      );
 }
 
 /* ---- cell helpers, matching the prototype's td classes ------------------ */

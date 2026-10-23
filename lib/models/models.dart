@@ -387,6 +387,13 @@ class SpdConfig {
   int get threshold => intOf(raw['threshold']);
   int get hourly => intOf(raw['hourly']);
   int get refresh => intOf(raw['refresh']);
+
+  /// FR-3.2 — the most ID labels the server will render in one sheet.
+  ///
+  /// Zero when the backend does not report it, which every screen reads as
+  /// "no ceiling known" and leaves its buttons alone — a console deployed
+  /// ahead of its server must not start refusing prints on its own authority.
+  int get maxSheetLabels => intOf((raw['_limits'] as Map?)?['sheetLabels']);
   String get labelTpl => '${raw['labelTpl'] ?? ''}';
   List<String> get emails => (raw['emails'] as List?)?.map((e) => '$e').toList() ?? const [];
   List<String> get grnCols => (raw['grnCols'] as List?)?.map((e) => '$e').toList() ?? const [];

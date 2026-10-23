@@ -204,8 +204,25 @@ class SpdRepository {
     return res['reprint'] == true;
   }
 
-  Future<Uint8List> labelSheetPdf({String? shiftId, String? lineId}) =>
-      api.download('/labels/sheet.pdf', query: {'shiftId': shiftId, 'lineId': lineId});
+  /// FR-3.2 — the printable sheet, for one line, one invoice, one table or a
+  /// whole shift.
+  ///
+  /// The scope is not a convenience. Every piece gets its own pouch, so a
+  /// shift runs to tens of thousands of labels and the server refuses a sheet
+  /// that large — an invoice is both what prints and what gets carried to the
+  /// bench.
+  Future<Uint8List> labelSheetPdf({
+    String? shiftId,
+    String? lineId,
+    String invoice = '',
+    String table = '',
+  }) =>
+      api.download('/labels/sheet.pdf', query: {
+        'shiftId': shiftId,
+        'lineId': lineId,
+        if (invoice.isNotEmpty) 'invoice': invoice,
+        if (table.isNotEmpty) 'table': table,
+      });
 
   /* ------------------------------------------------------ allocations --- */
 
@@ -502,10 +519,28 @@ class SpdRepository {
 
   Future<void> updateUser(String id, Map<String, dynamic> body) => api.patch('/users/$id', body: body);
 
-  Future<SpdConfig> config() async => SpdConfig(_m((await api.get('/config'))['config']));
+  /// The organisation's settings, with the server's own limits riding along.
+  ///
+  /// `limits` is not configuration and is never saved back — it is what the
+  /// container will do in one request, which the ID Labels screen needs so it
+  /// can scope a sheet to something the server will actually render instead of
+  /// offering a button that always fails. It is folded into the same object
+  /// the screens already read rather than threaded through as a second model.
+  Future<SpdConfig> config() async {
+    final res = await api.get('/config');
+    return SpdConfig({
+      ..._m(res['config']),
+      if (res['limits'] != null) '_limits': _m(res['limits']),
+    });
+  }
 
-  Future<SpdConfig> saveConfig(Map<String, dynamic> patch) async =>
-      SpdConfig(_m((await api.put('/config', body: patch))['config']));
+  Future<SpdConfig> saveConfig(Map<String, dynamic> patch) async {
+    final res = await api.put('/config', body: patch);
+    return SpdConfig({
+      ..._m(res['config']),
+      if (res['limits'] != null) '_limits': _m(res['limits']),
+    });
+  }
 
   Future<AuditPage> audit({String action = '', String q = '', int limit = 300}) async {
     final res = await api.get('/audit', query: {'action': action, 'q': q, 'limit': limit});

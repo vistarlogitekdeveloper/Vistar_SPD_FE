@@ -267,6 +267,30 @@ void main() {
       ]));
       expectNoOverflow(tester, 'unbounded SpdTable');
       expect(find.text('below'), findsOneWidget);
+      expect(find.text('INV-19'), findsOneWidget,
+          reason: 'a short table still belongs to the page and draws in full');
+    });
+
+    testWidgets('a shift of GRN lines does not lay out every row', (tester) async {
+      /* The one that made the app feel broken after an import.
+
+         An unbounded ListView has to shrinkWrap, and shrinkWrap means laying
+         out every child to measure the total height — so nothing is lazy. A
+         real shift is 1,532 lines: 18,907ms to first paint and 1,965ms every
+         time the pointer crossed a row. Past sixty rows the table now takes
+         its own bounded scroller, which costs 316ms and 25ms.
+
+         Measured here as "is the last row in the tree", because that is the
+         thing that silently regresses — a stray maxHeight, or the threshold
+         being raised past a screen that needs it, and the table is eagerly
+         laying out a shift again with nothing to show for it. */
+      await pumpIn(tester, SpdTable(
+        columns: const [SpdCol('Invoice'), SpdCol('Qty', right: true)],
+        rows: [for (var i = 0; i < 1532; i++) SpdRow([cell('INV-$i'), monoCell('$i')])],
+      ));
+      expect(find.text('INV-0'), findsOneWidget);
+      expect(find.text('INV-1531'), findsNothing,
+          reason: 'row 1,531 is three hundred screens down — building it is the bug');
     });
 
     testWidgets('fills and scrolls when its height is bounded', (tester) async {

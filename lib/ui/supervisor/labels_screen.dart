@@ -14,39 +14,108 @@ import '../widgets/pdf_preview_dialog.dart';
 
 /// UC-02 / FR-3 — generate, preview and print the ID label, with the reprint
 /// reason BR-09 requires.
-class LabelsScreen extends ConsumerWidget {
+class LabelsScreen extends ConsumerStatefulWidget {
   const LabelsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<LabelsScreen> createState() => _LabelsScreenState();
+}
+
+class _LabelsScreenState extends ConsumerState<LabelsScreen> {
+  /// Which invoice the sheet covers. Empty is the whole shift, which on a real
+  /// GRN is usually more labels than one sheet will carry — see the advisory
+  /// below.
+  String _invoice = '';
+
+  @override
+  Widget build(BuildContext context) {
     final lines = ref.watch(linesProvider);
     final log = ref.watch(labelLogProvider);
     final shiftId = ref.watch(selectedShiftProvider);
+    final cap = ref.watch(configProvider).value?.maxSheetLabels ?? 0;
+
+    final page = lines.value;
+    final scoped = page == null
+        ? const <GrnLine>[]
+        : (_invoice.isEmpty
+            ? page.lines
+            : page.lines.where((l) => l.invoiceNo == _invoice).toList());
+    // FR-3.5 — labels, not lines. A split line prints more than one page, and
+    // this is the number a Supervisor sizes label stock from.
+    final count = scoped.fold<int>(0, (n, l) => n + l.labelCount);
+    /* The sheet the server will refuse is the one the console must not offer.
+       MOQ 1 means one pouch per piece, so a whole shift is tens of thousands
+       of labels: 517 lines came to 31,398 against a ceiling of 5,000. The
+       button used to advertise that exact number and then fail on every
+       press. */
+    final overCap = cap > 0 && count > cap;
+    final blocked = shiftId == null || count == 0 || overCap;
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       PageHeader(
         crumb: 'GRN ·',
         accent: 'ID Labels',
         title: 'ID label print & preview',
-        blurb: 'Labels carry part number, description, invoice, GRN quantity, GRN date and a '
-            'scannable QR — generated from the imported data, never typed. Reprints are '
+        blurb: 'Labels carry part number, description, the quantity in the pouch, GRN date and '
+            'a scannable QR — generated from the imported data, never typed. Reprints are '
             'audit-logged with a reason (BR-09).',
         actions: [
           GhostButton(
             label: 'Save sheet (PDF)',
             icon: Icons.download_rounded,
-            onPressed: shiftId == null ? null : () => _saveSheet(context, ref, shiftId),
+            onPressed: blocked ? null : () => _saveSheet(context, ref, shiftId),
           ),
           GradButton(
-            // FR-3.5 — labels, not lines. A split line prints more than one
-            // page, and this is the number a Supervisor sizes label stock from.
-            label: 'Print sheet · ${lines.value?.lines.fold<int>(0, (n, l) => n + l.labelCount) ?? 0}',
+            label: 'Print sheet · ${nf(count)}',
             icon: Icons.print_outlined,
             small: true,
-            onPressed: shiftId == null ? null : () => _printSheet(context, ref, shiftId),
+            onPressed: blocked ? null : () => _printSheet(context, ref, shiftId, count),
           ),
         ],
       ),
+
+      /* The scope. A sheet is carried to one bench for one invoice, which is
+         how the floor already works and is also the only size that prints —
+         so this is the control that makes the buttons above usable rather
+         than a filter someone might think to reach for. */
+      FilterBar(
+        onReset: _invoice.isEmpty ? null : () => setState(() => _invoice = ''),
+        children: [
+          Field(
+            label: 'Sheet covers',
+            bottom: 0,
+            child: SpdDropdown<String>(
+              dense: true,
+              value: _invoice,
+              items: [
+                DropdownMenuItem(
+                  value: '',
+                  child: Text('Whole shift · ${nf(page?.lines.fold<int>(0, (n, l) => n + l.labelCount) ?? 0)} labels'),
+                ),
+                for (final i in page?.invoices ?? const <String>[])
+                  DropdownMenuItem(
+                    value: i,
+                    child: Text(
+                      '$i · ${nf(page!.lines.where((l) => l.invoiceNo == i).fold<int>(0, (n, l) => n + l.labelCount))} labels',
+                    ),
+                  ),
+              ],
+              onChanged: (v) => setState(() => _invoice = v ?? ''),
+            ),
+          ),
+        ],
+      ),
+
+      if (overCap) ...[
+        AlertBox(
+          tone: AlertTone.warn,
+          title: '${nf(count)} labels is more than one sheet carries (${nf(cap)})',
+          message: 'Every piece gets its own pouch, so a shift runs to tens of thousands of '
+              'labels. Pick an invoice above and the sheet prints for that invoice — which is '
+              'how it reaches the bench anyway. A single line prints from its own row below.',
+        ),
+        const SizedBox(height: 16),
+      ],
 
       lines.when(
         skipLoadingOnReload: true,
@@ -104,30 +173,38 @@ class LabelsScreen extends ConsumerWidget {
     ]);
   }
 
+  /// The file name a sheet is saved under, so a Supervisor with four of them
+  /// in a downloads folder can tell which invoice each one is.
+  String _fileName(String shiftId) => _invoice.isEmpty
+      ? 'SPD_ID_LABELS_$shiftId.pdf'
+      : 'SPD_ID_LABELS_${shiftId}_${_invoice.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '-')}.pdf';
+
   Future<void> _saveSheet(BuildContext context, WidgetRef ref, String shiftId) async {
     try {
-      final bytes = await ref.read(repositoryProvider).labelSheetPdf(shiftId: shiftId);
-      await saveBytes(filename: 'SPD_ID_LABELS_$shiftId.pdf', bytes: bytes, mime: 'application/pdf');
-      if (context.mounted) {
-        Toast.ok(context, 'Label sheet saved', 'SPD_ID_LABELS_$shiftId.pdf is in your downloads.');
-      }
+      final bytes = await ref
+          .read(repositoryProvider)
+          .labelSheetPdf(shiftId: shiftId, invoice: _invoice);
+      final name = _fileName(shiftId);
+      await saveBytes(filename: name, bytes: bytes, mime: 'application/pdf');
+      if (context.mounted) Toast.ok(context, 'Label sheet saved', '$name is in your downloads.');
     } on ApiException catch (e) {
       if (context.mounted) Toast.bad(context, 'Could not build the sheet', e.message);
     }
   }
 
-  Future<void> _printSheet(BuildContext context, WidgetRef ref, String shiftId) async {
+  Future<void> _printSheet(BuildContext context, WidgetRef ref, String shiftId, int count) async {
     try {
-      final bytes = await ref.read(repositoryProvider).labelSheetPdf(shiftId: shiftId);
-      final count = ref.read(linesProvider).value?.lines.length ?? 0;
+      final bytes = await ref
+          .read(repositoryProvider)
+          .labelSheetPdf(shiftId: shiftId, invoice: _invoice);
       if (!context.mounted) return;
       // Previewed before it reaches the printer — label stock is consumable,
       // and a sheet that goes straight to the OS dialog is one nobody has seen.
       await showPdfPreviewDialog(
         context,
-        title: 'ID label sheet',
-        subtitle: '$count label${count == 1 ? '' : 's'} · check the sheet, then send it to the label printer',
-        fileName: 'SPD_ID_LABELS_$shiftId.pdf',
+        title: _invoice.isEmpty ? 'ID label sheet' : 'ID label sheet · $_invoice',
+        subtitle: '${nf(count)} label${count == 1 ? '' : 's'} · check the sheet, then send it to the label printer',
+        fileName: _fileName(shiftId),
         bytes: bytes,
       );
     } on ApiException catch (e) {
