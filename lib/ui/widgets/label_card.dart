@@ -72,25 +72,22 @@ class LabelCard extends StatelessWidget {
                      tables it has been allocated to, and the date is the
                      shift's. Neither prints until the line is allocated,
                      because a blank is honest where a guess is not. */
+                  /* Three fields, and that is the whole of it — the same three
+                     the PDF prints, because what a Supervisor approves on
+                     screen has to be what comes off the printer.
+
+                     It carried five. Each was defensible alone; together they
+                     made a sticker that is read at arm's length, on a bench,
+                     while the bag is being filled, into something to be
+                     studied. The quantity went with them: a pouch holds one
+                     MOQ, and on this GRN 2,560 of 3,930 parts have an MOQ of
+                     1, so the number printed on most pouches was "1". The part
+                     number above says what it is; the QR carries the quantity
+                     for anything that scans it. */
                   Wrap(spacing: 10, runSpacing: 4, children: [
                     _Field('INVOICE', l.invoiceNo),
-                    /* This pack's own quantity, which is the whole GRN quantity
-                       unless the line was split by MOQ. Which pack it is
-                       belongs on this caption, because this is the number it
-                       qualifies. */
-                    _Field(
-                      u != null && u.isSplit ? 'QTY (${u.marker.toUpperCase()})' : 'QTY',
-                      '${nf(u?.qty ?? l.grnQty)} ${l.uom}',
-                    ),
-                    _Field('GRN DATE', fmtD(l.grnDate)),
                     _Field('PACKER', l.packer ?? '—'),
-                    _Field('PACKED ON', l.packedOn == null ? '—' : fmtD(l.packedOn!)),
-                    /* The receipt's own quantity is not here. A split line used
-                       to add it as a GRN TOTAL field, so the sticker on a
-                       50-piece pouch also carried 350 — set in the same weight,
-                       a column along from the number actually in the bag. One
-                       quantity per sticker: what it is stuck to. The receipt
-                       total is on the GRN and in the console. */
+                    _Field('GRN DATE', fmtD(l.grnDate)),
                   ]),
                 ]),
               ),

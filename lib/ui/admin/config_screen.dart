@@ -34,6 +34,12 @@ class _PartMasterPanelState extends ConsumerState<PartMasterPanel> {
   bool _busy = false;
   String? _error;
 
+  /* Who the endpoints let in, said once here so the panel and the server
+     cannot drift. `viewer` is the console's key for Management. */
+  static bool _canRead(String? role) =>
+      role == 'admin' || role == 'supervisor' || role == 'viewer';
+  static bool _canWrite(String? role) => role == 'admin' || role == 'supervisor';
+
   @override
   void initState() {
     super.initState();
@@ -41,7 +47,7 @@ class _PartMasterPanelState extends ConsumerState<PartMasterPanel> {
   }
 
   Future<void> _load() async {
-    if (ref.read(sessionProvider).user?.roleKey != 'admin') return;
+    if (!_canRead(ref.read(sessionProvider).user?.roleKey)) return;
     try {
       final m = await ref.read(repositoryProvider).partMaster();
       if (!mounted) return;
@@ -83,12 +89,17 @@ class _PartMasterPanelState extends ConsumerState<PartMasterPanel> {
 
   @override
   Widget build(BuildContext context) {
-    /* Administrator only, matching the endpoints. A Supervisor reaching this
-       screen sees nothing here rather than a panel that answers 403 on use:
-       an upload button that cannot upload is worse than no button. */
-    if (ref.watch(sessionProvider).user?.roleKey != 'admin') {
-      return const SizedBox.shrink();
-    }
+    /* Read by three roles, replaced by two — the same split the endpoints
+       draw. The master explains the floor, so a Supervisor whose label count
+       surprises them and Management reading an MIS built on those pouch
+       counts both have a reason to look. Writing it changes how every shift
+       that follows is split, and Management does not change the floor.
+
+       Anyone else sees nothing here rather than a panel that answers 403 on
+       use: an upload button that cannot upload is worse than no button. */
+    final role = ref.watch(sessionProvider).user?.roleKey;
+    if (!_canRead(role)) return const SizedBox.shrink();
+    final canUpload = _canWrite(role);
 
     final s = _summary;
     final r = _result;
@@ -130,13 +141,15 @@ class _PartMasterPanelState extends ConsumerState<PartMasterPanel> {
           ),
         ],
 
-        const SizedBox(height: 12),
-        GradButton(
-          label: _busy ? 'Uploading…' : 'Upload MOQ master',
-          icon: Icons.upload_file_rounded,
-          small: true,
-          onPressed: _busy ? null : _upload,
-        ),
+        if (canUpload) ...[
+          const SizedBox(height: 12),
+          GradButton(
+            label: _busy ? 'Uploading…' : 'Upload MOQ master',
+            icon: Icons.upload_file_rounded,
+            small: true,
+            onPressed: _busy ? null : _upload,
+          ),
+        ],
       ]),
     );
   }

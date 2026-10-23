@@ -621,7 +621,13 @@ void main() {
       for (final text in ['90210-ABX', 'Front Bumper Bracket LH', 'INV-77001']) {
         expect(find.textContaining(text), findsWidgets, reason: 'the label omits $text');
       }
-      expect(find.textContaining('270'), findsWidgets, reason: 'the GRN quantity is missing');
+      // Three fields, and no quantity among them.
+      for (final caption in ['INVOICE', 'PACKER', 'GRN DATE']) {
+        expect(find.text(caption), findsOneWidget, reason: 'the label omits $caption');
+      }
+      expect(find.textContaining('270'), findsNothing,
+          reason: 'the quantity came off the sticker');
+      expect(find.text('PACKED ON'), findsNothing);
     });
 
     testWidgets('prints no vendor name and no barcode', (tester) async {
@@ -659,26 +665,26 @@ void main() {
 
     /* FR-3.5 — the split. */
 
-    testWidgets('a split label shows its own quantity, not the line total', (tester) async {
-      // MOQ 300 against a GRN quantity of 350: the second label holds 50, and a
-      // label that showed 350 would have someone pack the wrong pouch.
+    testWidgets('a split label carries no quantity and no pouch marker', (tester) async {
+      /* MOQ 300 against a GRN quantity of 350 is still two pouches — the
+         split is unchanged. What changed is that the sticker no longer says
+         which pouch it is or how much is in it, so this one and the 300 are
+         the same label. Neither number was earning its place once a pouch
+         held one MOQ and most MOQs were 1. */
       await pumpIn(tester, LabelCard(
         preview: preview(grnQty: 350, moq: 300, labels: [unit(300, index: 1, of: 2), unit(50, index: 2, of: 2)]),
         unit: unit(50, index: 2, of: 2),
       ));
       expectNoOverflow(tester, 'split LabelCard');
-      expect(find.textContaining('50'), findsWidgets);
-      /* Which pack this is sits on the caption of the quantity it qualifies,
-         the way the printed label sets it — not on a line of its own. */
-      expect(find.text('QTY (2 OF 2)'), findsOneWidget);
-      expect(find.text('50 NOS'), findsOneWidget);
-      /* The receipt's own quantity is no longer on the sticker at all. It used
-         to be added as a GRN TOTAL field whenever MOQ split the line, so this
-         50-piece pouch also carried 350 in the same weight, one column along —
-         and the bolder of two quantities on a label read at arm's length is
-         the one that gets acted on. */
+      expect(find.text('50 NOS'), findsNothing, reason: 'the pouch quantity is gone');
+      expect(find.text('350 NOS'), findsNothing, reason: 'and so is the receipt total');
       expect(find.text('GRN TOTAL'), findsNothing);
-      expect(find.text('350 NOS'), findsNothing);
+      expect(find.textContaining(' OF '), findsNothing, reason: 'and the pouch marker');
+
+      // What a storeman is left with, which is the point of the change.
+      expect(find.text('INVOICE'), findsOneWidget);
+      expect(find.text('PACKER'), findsOneWidget);
+      expect(find.text('GRN DATE'), findsOneWidget);
     });
 
     testWidgets('an unsplit label shows no marker', (tester) async {
@@ -737,13 +743,12 @@ void main() {
         expectNoOverflow(tester, 'split LabelCard with a $n×$n QR');
 
         final quiet = tester.getRect(qrBox).inflate(4 * (62 / n));
-        /* The marker is the QTY caption now. It used to be the GRN TOTAL field
-           beside it, which was the last field in the grid and so the one
-           nearest the code — until the receipt total came off the sticker
-           altogether and took the measuring stick with it. The caption that
-           carries "2 OF 2" is the split marker proper, and it is in the same
-           grid, which is what this is really about. */
-        final marker = find.text('QTY (2 OF 2)');
+        /* The measuring stick has changed twice now — it was the GRN TOTAL
+           field, then the QTY caption, and both came off the sticker. GRN
+           DATE is the last of the three that are left and so the one
+           nearest the code; the grid it sits in is what actually has to
+           clear the quiet zone, and that is checked below. */
+        final marker = find.text('GRN DATE');
         expect(tester.getRect(marker).overlaps(quiet), isFalse,
             reason: 'v$n: the split marker ${tester.getRect(marker)} is in the quiet zone $quiet');
 
@@ -1378,8 +1383,10 @@ void splitDialogTests() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.textContaining('prints 2 labels'), findsOneWidget);
     expect(find.textContaining('300 + 50'), findsOneWidget);
-    expect(find.text('QTY (1 OF 2)'), findsOneWidget);
-    expect(find.text('QTY (2 OF 2)'), findsOneWidget);
+    // Two labels, neither of them numbered or carrying a quantity: the
+    // dialog states the arithmetic, the stickers no longer repeat it.
+    expect(find.text('GRN DATE'), findsNWidgets(2));
+    expect(find.textContaining(' OF '), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

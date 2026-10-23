@@ -6,6 +6,7 @@ import 'core/telemetry.dart';
 import 'core/theme.dart';
 import 'data/providers.dart';
 import 'ui/admin/config_screen.dart';
+import 'ui/admin/part_master_screen.dart';
 import 'ui/admin/users_screen.dart';
 import 'ui/login_screen.dart';
 import 'ui/member/my_history_screen.dart';
@@ -33,7 +34,7 @@ String homeFor(String roleKey) => switch (roleKey) {
 /// boundary; this only keeps a role from navigating somewhere it would be
 /// refused, so the refusal never has to be explained twice.
 const _blocked = <String, List<String>>{
-  'member': ['/dashboard', '/grn', '/lines', '/labels', '/allocation', '/review', '/hourly', '/mis', '/audit', '/admin'],
+  'member': ['/dashboard', '/grn', '/lines', '/labels', '/allocation', '/review', '/hourly', '/mis', '/audit', '/admin', '/masters'],
   'viewer': ['/grn', '/lines', '/labels', '/allocation', '/review', '/hourly', '/audit', '/admin', '/my'],
   // A Supervisor has no member screens of their own — the API refuses a
   // Start/Submit from them, so the console must not offer the route either.
@@ -110,6 +111,11 @@ class _SpdAppState extends ConsumerState<SpdApp> {
             GoRoute(path: '/my/history', builder: (_, _) => const MyHistoryScreen()),
             GoRoute(path: '/admin/users', builder: (_, _) => const UsersScreen()),
             GoRoute(path: '/admin/config', builder: (_, _) => const ConfigScreen()),
+            /* FR-3.5 — the part master has a screen rather than a panel on an
+               Administrator one, because a Supervisor and Management both have
+               reason to ask it questions. Not under /admin for the same reason:
+               the blocked lists below shut that whole prefix to them. */
+            GoRoute(path: '/masters', builder: (_, _) => const PartMasterScreen()),
           ],
         ),
       ],

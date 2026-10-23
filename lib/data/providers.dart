@@ -279,6 +279,20 @@ typedef Seating = ({
 final seatingProvider =
     FutureProvider<Seating>((ref) => _scoped(ref, (r, s) => r.shiftAssignments(s)));
 
+/// FR-3.5 — what the Part Master screen is searching for.
+final partSearchProvider = uiValue<String>('');
+
+/// The master, filtered by [partSearchProvider].
+///
+/// Not shift-scoped: a part master outlives every shift, which is the whole
+/// reason it exists. It watches the data version so an upload refreshes it.
+final partMasterProvider =
+    FutureProvider<({List<Map<String, dynamic>> parts, int total, int shown})>((ref) {
+  ref.watch(dataVersionProvider);
+  final q = ref.watch(partSearchProvider);
+  return ref.watch(repositoryProvider).partMasterList(q: q);
+});
+
 /// Who is standing at each table this shift, by name, keyed by table number.
 ///
 /// [seatingProvider] answers which account is seated where, which is the thing

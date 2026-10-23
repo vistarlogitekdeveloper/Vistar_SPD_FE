@@ -399,6 +399,42 @@ class SpdRepository {
     });
   }
 
+  /* ----------------------------------------------------- part master --- */
+
+  /// FR-3.5 — the master itself: part number, description, MOQ, and nothing
+  /// else. [q] matches either the code or the description, because a
+  /// storeman looking for a snap ring has the words rather than the code.
+  Future<({List<Map<String, dynamic>> parts, int total, int shown})> partMasterList({
+    String q = '',
+    int limit = 200,
+  }) async {
+    final res = await api.get('/masters/parts/list', query: {'q': q, 'limit': limit});
+    return (
+      parts: (res['parts'] as List? ?? const []).map(_m).toList(),
+      total: (res['total'] as num? ?? 0).toInt(),
+      shown: (res['shown'] as num? ?? 0).toInt(),
+    );
+  }
+
+  /// Every GRN line that has carried this part: which invoice, when, how
+  /// much arrived and how many pouches the MOQ made of it.
+  ///
+  /// Matched the way the splitter matches — the SAP material minus its last
+  /// two characters, falling back to the material as given — so the answer
+  /// describes the same lines the pouch counts came from.
+  Future<({
+    Map<String, dynamic> part,
+    List<Map<String, dynamic>> lines,
+    Map<String, dynamic> totals,
+  })> partMasterLines(String partNo) async {
+    final res = await api.get('/masters/parts/${Uri.encodeComponent(partNo)}/lines');
+    return (
+      part: _m(res['part']),
+      lines: (res['lines'] as List? ?? const []).map(_m).toList(),
+      totals: _m(res['totals']),
+    );
+  }
+
   /* ------------------------------------------------------- operators --- */
 
   /// Who is standing at each table this shift, by name, keyed by table number.

@@ -34,10 +34,17 @@ const navByRole = <String, List<NavGroup>>{
       NavItem('/grn', 'GRN Upload', Icons.upload_rounded),
       NavItem('/lines', 'Invoice / Part Lines', Icons.format_list_bulleted_rounded),
       NavItem('/labels', 'ID Labels', Icons.sell_outlined),
+      NavItem('/masters', 'Part Master', Icons.inventory_2_outlined),
     ]),
+    /* Hourly Reports is no longer a destination.
+
+       FR-8.1 sends the report on a timer to the distribution list, so the
+       screen was somewhere to go and watch something happen by itself. The
+       route still exists and still renders — a bookmark, and the dashboard's
+       own link to it, both keep working — it simply does not take a line in
+       the sidebar beside the screens that are actually operated. */
     NavGroup('Floor', [
       NavItem('/review', 'Review & Finalise', Icons.visibility_outlined),
-      NavItem('/hourly', 'Hourly Reports', Icons.mail_outline_rounded),
     ]),
     NavGroup('Reports', [
       NavItem('/mis', 'MIS Report', Icons.show_chart_rounded),
@@ -55,6 +62,7 @@ const navByRole = <String, List<NavGroup>>{
     NavGroup('Administration', [
       NavItem('/admin/users', 'Users & Roles', Icons.group_outlined),
       NavItem('/admin/config', 'Masters & Config', Icons.tune_rounded),
+      NavItem('/masters', 'Part Master', Icons.inventory_2_outlined),
       NavItem('/audit', 'Audit Trail', Icons.shield_outlined),
     ]),
   ],
@@ -62,6 +70,7 @@ const navByRole = <String, List<NavGroup>>{
     NavGroup('Management View', [
       NavItem('/dashboard', 'Live Dashboard', Icons.grid_view_rounded),
       NavItem('/mis', 'MIS Report', Icons.show_chart_rounded),
+      NavItem('/masters', 'Part Master', Icons.inventory_2_outlined),
     ]),
   ],
 };
