@@ -28,7 +28,7 @@
 set -euo pipefail
 
 FLUTTER_VERSION="${FLUTTER_VERSION:-3.41.7}"
-SPD_API="${SPD_API:-https://uat-api.vistarlogitek.com/api/v1/spd}"
+SPD_API="${SPD_API:-https://uat-api.vistarlogitek.com/v1/spd}"
 FLUTTER_DIR="${PWD}/.flutter-sdk"
 
 echo "==> SPD console"
