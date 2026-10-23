@@ -28,12 +28,51 @@
 set -euo pipefail
 
 FLUTTER_VERSION="${FLUTTER_VERSION:-3.41.7}"
-SPD_API="${SPD_API:-https://uat-api.vistarlogitek.com/v1/spd}"
+SPD_API="${SPD_API:-https://uat-api.vistarlogitek.com/api/v1/spd}"
 FLUTTER_DIR="${PWD}/.flutter-sdk"
 
 echo "==> SPD console"
 echo "    flutter   ${FLUTTER_VERSION}"
 echo "    api root  ${SPD_API}"
+
+# The API root is checked before anything is compiled, because getting it wrong
+# is both easy and invisible until nobody can sign in.
+#
+# This default was `https://uat-api.vistarlogitek.com/v1/spd` for several
+# deploys — the `/api` dropped out of it — and the console went out with every
+# request 404ing. Nothing failed: the build was green, the bundle was valid,
+# wrangler shipped it, and the first sign of trouble was a supervisor being
+# told "Request failed (404)". A wrong URL that fails at build time costs
+# minutes; one that fails at run time costs a shift.
+#
+# The CRM mounts SPD at /api/v1/spd (SPD_MOUNT_PATH in src/modules/spd/config.js),
+# so that is the shape required here. Set SPD_API_ALLOW_UNUSUAL=1 for a genuinely
+# different mount — a reverse proxy that strips the prefix, say — which keeps
+# this a guard rather than a cage.
+#
+# A trailing slash is trimmed rather than refused: normalizeApiRoot() in
+# lib/core/api.dart trims it too, so the build would have worked and refusing
+# it would be this guard inventing a rule the app does not have.
+SPD_API="${SPD_API%/}"
+
+if [ "${SPD_API_ALLOW_UNUSUAL:-0}" != "1" ]; then
+  case "${SPD_API}" in
+    https://*/api/v1/spd | http://*/api/v1/spd) ;;
+    *)
+      echo "" >&2
+      echo "ERROR: SPD_API does not look like an SPD API root." >&2
+      echo "  got      ${SPD_API}" >&2
+      echo "  expected https://<host>/api/v1/spd" >&2
+      echo "" >&2
+      echo "The CRM mounts this module at /api/v1/spd. A root without it compiles" >&2
+      echo "and deploys cleanly, then 404s on every call — which is how this" >&2
+      echo "console last shipped unusable." >&2
+      echo "" >&2
+      echo "Set SPD_API_ALLOW_UNUSUAL=1 if the mount really is different." >&2
+      exit 1
+      ;;
+  esac
+fi
 
 if [ ! -x "${FLUTTER_DIR}/bin/flutter" ]; then
   echo "==> fetching Flutter ${FLUTTER_VERSION}"
