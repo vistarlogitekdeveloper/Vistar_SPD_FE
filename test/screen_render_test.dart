@@ -332,14 +332,14 @@ void main() {
   }
 }
 
-/// Only the two methods screens call on the repository directly, rather than
-/// through a provider: the login roster and the per-tile label preview.
+/// The one method screens call on the repository directly rather than through
+/// a provider: the per-tile label preview.
+///
+/// The login roster was the other, and it is gone — the sign-in screen no
+/// longer lists every operator in the company before anyone has a token. Who
+/// is at a bench is asked after sign-in instead; see [showOperatorPrompt].
 class _FakeRepo extends SpdRepository {
   _FakeRepo() : super(ApiClient(baseUrl: 'http://127.0.0.1:1/api'));
-
-  @override
-  Future<List<Map<String, dynamic>>> members() async =>
-      [{'id': 'tm.ssingh', 'name': 'Sandeep Singh', 'emp_code': 'EMP-4412', 'table_no': 'T-01'}];
 
   @override
   Future<LabelPreview> labelPreview(String lineId) async => LabelPreview(

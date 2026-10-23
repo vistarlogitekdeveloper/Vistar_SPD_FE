@@ -8,6 +8,7 @@ import '../../core/theme.dart';
 import '../../data/providers.dart';
 import '../../models/models.dart';
 import '../widgets/common.dart';
+import '../widgets/operator_prompt.dart';
 
 /// Who is on which table for this shift.
 ///
@@ -82,8 +83,10 @@ class _SeatingPanelState extends ConsumerState<SeatingPanel> {
               children: [
                 for (final t in s.tables)
                   TableCard(
-                    child: Field(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Field(
                       label: '${t['table_no']}',
+                      bottom: 0,
                       child: SpdDropdown<String?>(
                         value: draft['${t['table_no']}'],
                         items: [
@@ -115,6 +118,20 @@ class _SeatingPanelState extends ConsumerState<SeatingPanel> {
                                 }),
                       ),
                     ),
+                    const SizedBox(height: 10),
+                    /* The account seated above is who may sign in here. These
+                       are the people actually standing at the bench, which is
+                       a longer list and a different fact — most of them have
+                       no login at all. The floor types them in after signing
+                       on; this is where a Supervisor corrects a bench that was
+                       left wrong, and it is what the ID label prints. */
+                    OperatorNames(
+                      tableNo: '${t['table_no']}',
+                      onEdit: locked
+                          ? null
+                          : () => showOperatorPrompt(context, ref, tableNo: '${t['table_no']}'),
+                    ),
+                  ]),
                   ),
               ],
             ),

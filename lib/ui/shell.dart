@@ -9,6 +9,7 @@ import '../core/theme.dart';
 import '../data/providers.dart';
 import '../models/models.dart';
 import 'widgets/common.dart';
+import 'widgets/operator_prompt.dart';
 
 /// One sidebar entry.
 class NavItem {
@@ -80,16 +81,45 @@ class _AppShellState extends ConsumerState<AppShell> {
   final _search = TextEditingController();
   final _scaffold = GlobalKey<ScaffoldState>();
 
+  /// True while the operator prompt is up, so a rebuild behind it — a poll
+  /// landing, the window resizing — does not stack a second copy on top.
+  bool _prompting = false;
+
   @override
   void dispose() {
     _search.dispose();
     super.dispose();
   }
 
+  /// FR-5.1 — ask a Member who is at their bench, once, on the screen they
+  /// land on after signing in.
+  ///
+  /// It happens here rather than at the end of sign-in because the login
+  /// screen leaves the tree on the same frame the route changes, taking the
+  /// `BuildContext` a dialog would need with it. The shell is the first thing
+  /// that is still standing afterwards.
+  void _maybePromptForOperators() {
+    if (_prompting) return;
+    final table = ref.read(operatorPromptProvider);
+    if (table == null) return;
+
+    _prompting = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Cleared before the prompt opens, not after: a member who waves it away
+      // is not asked again at every navigation, and a rebuild while it is up
+      // does not find the request still pending.
+      ref.read(operatorPromptProvider.notifier).set(null);
+      if (!mounted) return;
+      await showOperatorPrompt(context, ref, tableNo: table, atSignIn: true);
+      if (mounted) _prompting = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final narrow = MediaQuery.sizeOf(context).width <= 980;
     final role = ref.watch(viewRoleProvider);
+    _maybePromptForOperators();
 
     return Scaffold(
       key: _scaffold,

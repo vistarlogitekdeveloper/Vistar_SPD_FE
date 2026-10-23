@@ -670,48 +670,382 @@ class Field extends StatelessWidget {
       );
 }
 
-/// `select.inp` — a dropdown styled like the prototype's inputs.
-class SpdDropdown<T> extends StatelessWidget {
+/// `select.inp` — the app's one dropdown.
+///
+/// This used to be a `DropdownButtonFormField`, and the invoice filter is what
+/// retired it. Material's menu sizes itself to its items and is bounded only by
+/// the window, so a shift carrying four hundred invoices opened a list the full
+/// height of the screen, laid straight over the table it was filtering, with no
+/// visible scrollbar to say there was more and nothing to do but drag. It also
+/// draws its own surface, which is why that list looked like a different
+/// application from the panel underneath it.
+///
+/// So the panel is drawn here instead: anchored to the field, bounded, properly
+/// scrollable, and — once a list is longer than a glance — searchable, which on
+/// four hundred invoices is the difference between a filter and a chore. The
+/// closed field keeps the shape it always had, because every filter bar in the
+/// console is built out of it.
+class SpdDropdown<T> extends StatefulWidget {
   const SpdDropdown({
     super.key,
     required this.value,
     required this.items,
     required this.onChanged,
     this.dense = false,
+    this.hint,
   });
 
   final T? value;
   final List<DropdownMenuItem<T>> items;
+
+  /// Null disables the field, as it does on any Material control.
   final ValueChanged<T?>? onChanged;
   final bool dense;
 
+  /// Drawn when nothing is selected. Most pickers here carry an explicit
+  /// "All …" row instead and never need it.
+  final String? hint;
+
   @override
-  Widget build(BuildContext context) => DropdownButtonFormField<T>(
-        initialValue: value,
-        items: items,
-        onChanged: onChanged,
-        isExpanded: true,
-        dropdownColor: Brand.surface2,
-        borderRadius: BorderRadius.circular(13),
-        icon: Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: Brand.txt3),
-        style: body(size: dense ? 13 : 14, color: Brand.txt),
-        decoration: InputDecoration(
-          filled: true,
-          fillColor: Brand.field,
-          isDense: true,
-          contentPadding: dense
-              ? const EdgeInsets.symmetric(horizontal: 12, vertical: 10)
-              : const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(Brand.rSm),
-            borderSide: BorderSide(color: Brand.fieldLine),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(Brand.rSm),
-            borderSide: BorderSide(color: Brand.pink.withValues(alpha: 0.6), width: 1.4),
+  State<SpdDropdown<T>> createState() => _SpdDropdownState<T>();
+}
+
+/// A list longer than this gets a search box. Eight rows is about what the eye
+/// takes in at once; past that, reading becomes hunting.
+const _kSearchAfter = 8;
+
+class _SpdDropdownState<T> extends State<SpdDropdown<T>> {
+  final _anchor = GlobalKey();
+  bool _open = false;
+
+  bool get _enabled => widget.onChanged != null && widget.items.isNotEmpty;
+
+  DropdownMenuItem<T>? get _selected {
+    for (final i in widget.items) {
+      if (i.value == widget.value) return i;
+    }
+    return null;
+  }
+
+  Future<void> _openPanel() async {
+    final box = _anchor.currentContext?.findRenderObject() as RenderBox?;
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
+    if (box == null || overlay == null || !box.hasSize) return;
+    final rect = box.localToGlobal(Offset.zero, ancestor: overlay) & box.size;
+
+    setState(() => _open = true);
+    final picked = await Navigator.of(context).push(_SpdDropdownRoute<T>(
+      anchor: rect,
+      overlaySize: overlay.size,
+      items: widget.items,
+      value: widget.value,
+      dense: widget.dense,
+    ));
+    if (!mounted) return;
+    setState(() => _open = false);
+    // A dismissal returns null; choosing the row whose value *is* null returns
+    // a wrapper around it. The "— unassigned —" seat is a real choice, and
+    // before the wrapper it was indistinguishable from pressing Escape.
+    if (picked != null) widget.onChanged?.call(picked.value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = _selected;
+    final text = body(size: widget.dense ? 13 : 14, color: _enabled ? Brand.txt : Brand.txt3);
+    return Semantics(
+      button: true,
+      child: Material(
+        key: _anchor,
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _enabled ? _openPanel : null,
+          borderRadius: BorderRadius.circular(Brand.rSm),
+          child: Container(
+            height: widget.dense ? 38 : 44,
+            padding: EdgeInsets.symmetric(horizontal: widget.dense ? 12 : 14),
+            decoration: BoxDecoration(
+              color: Brand.field,
+              borderRadius: BorderRadius.circular(Brand.rSm),
+              border: Border.all(
+                color: _open ? Brand.pink.withValues(alpha: 0.6) : Brand.fieldLine,
+                width: _open ? 1.4 : 1,
+              ),
+            ),
+            child: Row(children: [
+              Expanded(
+                child: DefaultTextStyle(
+                  style: text,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  child: selected?.child ??
+                      Text(widget.hint ?? '', style: text.copyWith(color: Brand.txt3)),
+                ),
+              ),
+              const SizedBox(width: 6),
+              AnimatedRotation(
+                turns: _open ? 0.5 : 0,
+                duration: const Duration(milliseconds: 140),
+                curve: Curves.easeOutCubic,
+                child: Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: Brand.txt3),
+              ),
+            ]),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// What a row returns when it is chosen. See [_SpdDropdownState._openPanel].
+class _Choice<T> {
+  const _Choice(this.value);
+
+  final T value;
+}
+
+/// The open panel, as a popup route: the barrier it brings is what closes the
+/// list on an outside tap, and the route is what closes it on Escape and on
+/// the browser's back gesture.
+class _SpdDropdownRoute<T> extends PopupRoute<_Choice<T>> {
+  _SpdDropdownRoute({
+    required this.anchor,
+    required this.overlaySize,
+    required this.items,
+    required this.value,
+    required this.dense,
+  });
+
+  final Rect anchor;
+  final Size overlaySize;
+  final List<DropdownMenuItem<T>> items;
+  final T? value;
+  final bool dense;
+
+  @override
+  Color? get barrierColor => null;
+
+  @override
+  bool get barrierDismissible => true;
+
+  @override
+  String get barrierLabel => 'Close the list';
+
+  @override
+  bool get opaque => false;
+
+  @override
+  Duration get transitionDuration => const Duration(milliseconds: 130);
+
+  @override
+  Widget buildPage(BuildContext context, Animation<double> anim, Animation<double> _) {
+    const gap = 6.0;
+    const edge = 12.0;
+    final searchable = items.length > _kSearchAfter;
+    final rowH = dense ? 36.0 : 40.0;
+
+    // As wide as the field, but never so narrow that a part description is
+    // three letters and an ellipsis — the vendor filter is 150px on a laptop.
+    final width = math.min(math.max(anchor.width, 240.0), overlaySize.width - 2 * edge);
+    final wanted = math.min(320.0, items.length * rowH + 10 + (searchable ? 49 : 0));
+    final below = overlaySize.height - anchor.bottom - gap - edge;
+    final above = anchor.top - gap - edge;
+    // Below unless it genuinely does not fit and there is more room above: a
+    // list that jumps over the field it belongs to is disorienting.
+    final useBelow = below >= math.min(wanted, 180) || below >= above;
+    final room = math.max(140.0, useBelow ? below : above);
+    final height = math.min(wanted, room);
+
+    var left = anchor.left;
+    if (left + width > overlaySize.width - edge) left = overlaySize.width - edge - width;
+    if (left < edge) left = edge;
+
+    return Stack(children: [
+      Positioned(
+        left: left,
+        top: useBelow ? anchor.bottom + gap : anchor.top - gap - height,
+        width: width,
+        height: height,
+        child: FadeTransition(
+          opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
+          child: _SpdDropdownPanel<T>(
+            items: items,
+            value: value,
+            dense: dense,
+            searchable: searchable,
+            rowHeight: rowH,
+          ),
+        ),
+      ),
+    ]);
+  }
+}
+
+class _SpdDropdownPanel<T> extends StatefulWidget {
+  const _SpdDropdownPanel({
+    required this.items,
+    required this.value,
+    required this.dense,
+    required this.searchable,
+    required this.rowHeight,
+  });
+
+  final List<DropdownMenuItem<T>> items;
+  final T? value;
+  final bool dense, searchable;
+  final double rowHeight;
+
+  @override
+  State<_SpdDropdownPanel<T>> createState() => _SpdDropdownPanelState<T>();
+}
+
+class _SpdDropdownPanelState<T> extends State<_SpdDropdownPanel<T>> {
+  final _q = TextEditingController();
+  final _scroll = ScrollController();
+  late List<DropdownMenuItem<T>> _shown = widget.items;
+
+  @override
+  void initState() {
+    super.initState();
+    _q.addListener(_filter);
+    // Open on the current selection rather than at the top. On four hundred
+    // invoices the one you are looking at is otherwise off-screen, and the
+    // panel opens looking like it has forgotten what you picked.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.hasClients) return;
+      final i = _shown.indexWhere((e) => e.value == widget.value);
+      if (i < 3) return;
+      _scroll.jumpTo(math.min((i - 2) * widget.rowHeight, _scroll.position.maxScrollExtent));
+    });
+  }
+
+  @override
+  void dispose() {
+    _q.dispose();
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _filter() {
+    final q = _q.text.trim().toLowerCase();
+    setState(() {
+      _shown = q.isEmpty
+          ? widget.items
+          : widget.items.where((i) => _plainText(i.child).toLowerCase().contains(q)).toList();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: Colors.transparent,
+        child: Container(
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: Brand.surface2,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Brand.line2),
+            boxShadow: Brand.shadow,
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            if (widget.searchable) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+                child: Row(children: [
+                  Icon(Icons.search_rounded, size: 16, color: Brand.txt3),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _q,
+                      autofocus: true,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      style: body(size: 13),
+                      decoration: InputDecoration(
+                        isDense: true,
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        contentPadding: EdgeInsets.zero,
+                        hintText: 'Type to filter…',
+                        hintStyle: body(size: 13, color: Brand.txt3),
+                      ),
+                    ),
+                  ),
+                ]),
+              ),
+              Divider(height: 1, thickness: 1, color: Brand.line),
+            ],
+            Flexible(
+              child: _shown.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 22),
+                      child: Text('Nothing matches “${_q.text.trim()}”',
+                          style: body(size: 13, color: Brand.txt3), textAlign: TextAlign.center),
+                    )
+                  : Scrollbar(
+                      controller: _scroll,
+                      thumbVisibility: _shown.length * widget.rowHeight > 180,
+                      child: ListView.builder(
+                        controller: _scroll,
+                        padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 5),
+                        itemExtent: widget.rowHeight,
+                        itemCount: _shown.length,
+                        itemBuilder: (context, i) {
+                          final item = _shown[i];
+                          final on = item.value == widget.value;
+                          return InkWell(
+                            onTap: () => Navigator.pop(context, _Choice<T>(item.value as T)),
+                            borderRadius: BorderRadius.circular(9),
+                            hoverColor: Brand.surface3,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                              decoration: BoxDecoration(
+                                color: on ? Brand.pink.withValues(alpha: 0.13) : null,
+                                borderRadius: BorderRadius.circular(9),
+                              ),
+                              child: Row(children: [
+                                Expanded(
+                                  child: DefaultTextStyle(
+                                    style: body(
+                                      size: widget.dense ? 13 : 13.5,
+                                      color: on ? Brand.txt : Brand.txt2,
+                                      weight: on ? FontWeight.w700 : FontWeight.w500,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    child: item.child,
+                                  ),
+                                ),
+                                if (on) ...[
+                                  const SizedBox(width: 8),
+                                  Icon(Icons.check_rounded, size: 15, color: Brand.pink),
+                                ],
+                              ]),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+            ),
+          ]),
+        ),
       );
+}
+
+/// The text inside a dropdown row, for the search box to match against.
+///
+/// A `DropdownMenuItem` carries a widget, not a string, and the call sites in
+/// this app all pass a `Text` — sometimes wrapped in a `Row` or a `Padding`.
+/// Rather than change seventeen of them, the common containers are unwrapped
+/// here: anything whose children this cannot reach simply never matches, which
+/// costs that row the search but leaves it selectable.
+String _plainText(Widget w) {
+  if (w is Text) return w.data ?? w.textSpan?.toPlainText() ?? '';
+  if (w is RichText) return w.text.toPlainText();
+  if (w is SingleChildRenderObjectWidget) return w.child == null ? '' : _plainText(w.child!);
+  if (w is ProxyWidget) return _plainText(w.child);
+  if (w is MultiChildRenderObjectWidget) return w.children.map(_plainText).join(' ');
+  return '';
 }
 
 /// `.filterbar` — a bordered row of filter fields with a reset button.

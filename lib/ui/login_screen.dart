@@ -34,18 +34,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _user = TextEditingController();
   final _pass = TextEditingController();
   String _role = 'supervisor';
-  String? _memberId;
-  String? _tableNo;
-  List<Map<String, dynamic>> _members = const [];
-  List<Map<String, dynamic>> _tables = const [];
   bool _busy = false;
   String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadMembers();
-  }
 
   @override
   void dispose() {
@@ -54,58 +44,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     super.dispose();
   }
 
-  /// FR-5.1 — the member picker is filled before anyone signs in, so a shop-floor
-  /// operator selects their name instead of typing a login ID.
-  ///
-  /// The seating is fetched with it. A member picks their name and then the
-  /// table they are on today: those are two questions now, because members
-  /// rotate and the table is the Supervisor's decision for this shift rather
-  /// than a fixed property of the person.
-  Future<void> _loadMembers() async {
-    try {
-      final list = await ref.read(repositoryProvider).members();
-      if (!mounted) return;
-      setState(() {
-        _members = list;
-        // Nobody is chosen for you. The first name in the roster is not the
-        // person standing at the tablet, and pre-selecting it meant a tap on
-        // Sign in signed somebody else in.
-      });
-    } catch (_) {
-      // The roster is a convenience; a member can still type their ID.
-    }
-    try {
-      final seating = await ref.read(repositoryProvider).signInTables();
-      if (!mounted) return;
-      setState(() {
-        _tables = seating.tables;
-        _tableNo = _tableFor(_memberId);
-      });
-    } catch (_) {
-      // Without the seating a member can still sign in: the server resolves
-      // their table, exactly as it did before there was a picker for it.
-    }
-  }
-
-  /// The table the Supervisor has put this member on, if any.
-  String? _tableFor(String? memberId) {
-    if (memberId == null) return null;
-    for (final t in _tables) {
-      if ('${t['member_id']}' == memberId) return '${t['table_no']}';
-    }
-    return null;
-  }
-
   Future<void> _signIn() async {
     final isMember = _role == 'member';
-    /* Typed wins. The roster is a shortcut for a shop-floor tablet, not the
-       source of truth: if someone has typed an ID, that is the account they
-       mean, and the picker only answers when the field is empty. The two can
-       disagree only because nothing fills the field any more. */
-    final typed = _user.text.trim();
-    final id = typed.isNotEmpty ? typed : (isMember ? (_memberId ?? '') : '');
+    final id = _user.text.trim();
     if (id.isEmpty) {
-      setState(() => _error = 'Enter your user ID, or select your name from the list');
+      setState(() => _error = 'Enter your user ID to continue');
       return;
     }
     if (_pass.text.isEmpty) {
@@ -122,19 +65,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     // whichever it was given — so the shorter, all-digit entry is offered as a
     // PIN and anything else as a password.
     final looksLikePin = isMember && _pass.text.length <= 6 && int.tryParse(_pass.text) != null;
-    final table = isMember ? _tableNo : null;
+    /* No table is sent. The console used to ask for one here, from a picker
+       filled by a pre-authentication call that listed the whole floor to
+       anybody who loaded the page — and a member is on exactly one table in a
+       shift, so the server was being asked to confirm the only answer it could
+       have given. It resolves it from the Supervisor's seating instead, which
+       is what builds before the picker always relied on. */
     var ok = await ref.read(sessionProvider.notifier).signIn(
           userId: id,
           password: looksLikePin ? null : _pass.text,
           pin: looksLikePin ? _pass.text : null,
-          tableNo: table,
         );
     if (!ok && isMember && looksLikePin) {
       // Fall back to treating it as a password rather than telling a member
       // their PIN is wrong when the account simply has no PIN set.
-      ok = await ref
-          .read(sessionProvider.notifier)
-          .signIn(userId: id, password: _pass.text, tableNo: table);
+      ok = await ref.read(sessionProvider.notifier).signIn(userId: id, password: _pass.text);
     }
 
     if (!mounted) return;
@@ -143,7 +88,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       ref.read(viewRoleProvider.notifier).set(role);
       if (role == 'member') {
         final table = ref.read(sessionProvider).user?.tableNo;
-        if (table != null) ref.read(previewTableProvider.notifier).set(table);
+        if (table != null) {
+          ref.read(previewTableProvider.notifier).set(table);
+          /* Who is actually at the bench is asked here rather than on this
+             screen: it is a question for the people already standing at the
+             table, it has more than one answer, and most of those people have
+             no account to pick from a list. The shell opens it on the screen
+             the member lands on — see operatorPromptProvider. */
+          ref.read(operatorPromptProvider.notifier).set(table);
+        }
       }
       context.go(homeFor(role));
     } else {
@@ -204,11 +157,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   label: 'User ID',
                   child: TextField(
                     controller: _user,
-                    // Editable for every role. It used to be disabled for a
-                    // Table Member, on the assumption that they would always
-                    // pick a name — which left anyone whose name was missing
-                    // from the roster, or whose login id differs from it,
-                    // staring at a field they could not type into.
                     autocorrect: false,
                     autofillHints: const [],
                     enableSuggestions: false,
@@ -240,16 +188,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           onTap: () => setState(() {
                             _role = key;
                             _error = null;
-                            // A Table Member signs in by picking a name, so the
-                            // field follows the picker. Everyone else types
-                            // their own ID into an empty box.
                             // Cleared, not filled: a different role is a
                             // different account, and carrying one ID into the
                             // next sign-in is how the wrong one gets used.
                             _user.clear();
                             _pass.clear();
-                            _memberId = null;
-                            _tableNo = null;
                           }),
                         )),
                     ]);
@@ -257,61 +200,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 const SizedBox(height: 6),
 
-                // #counter-pick — only shown for a Table Member (FR-5.1).
-                if (isMember)
-                  Field(
-                    label: 'Table member',
-                    child: SpdDropdown<String>(
-                      value: _memberId,
-                      items: [
-                        for (final m in _members)
-                          DropdownMenuItem(
-                            value: '${m['id']}',
-                            child: Text(
-                              '${m['name']} · ${m['emp_code']}',
-                              style: body(size: 13.5),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                      ],
-                      onChanged: (v) => setState(() {
-                        _memberId = v;
-                        // The User ID field is left alone. It is editable, and
-                        // writing to it under the operator was the autofill
-                        // this screen was asked to stop doing.
-                        _tableNo = _tableFor(v) ?? _tableNo;
-                      }),
-                    ),
-                  ),
+                /* Two pickers used to stand here: a roster a Table Member
+                   found their own name in, and the table they were on today.
+                   Both are gone.
 
-                // The table they are working at this shift. Separate from the
-                // name because members rotate: the seating is the Supervisor's
-                // for the open shift, not a fixed property of the person. It
-                // defaults to wherever they are seated, and the server refuses
-                // a table they are not actually on.
-                if (isMember && _tables.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Field(
-                    label: 'Table',
-                    child: SpdDropdown<String>(
-                      value: _tableNo,
-                      items: [
-                        for (final t in _tables)
-                          DropdownMenuItem(
-                            value: '${t['table_no']}',
-                            child: Text(
-                              t['member_name'] == null
-                                  ? '${t['table_no']} · unassigned'
-                                  : '${t['table_no']} · ${t['member_name']}',
-                              style: body(size: 13.5),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                      ],
-                      onChanged: (v) => setState(() => _tableNo = v),
-                    ),
-                  ),
-                ],
+                   The roster was a list of every operator in the company,
+                   served to anyone who could load the login page, scrolled
+                   past rather than read on a shared tablet — and it could name
+                   exactly one person, when a bench often has three. The table
+                   was the only answer the server could have given anyway: a
+                   member is seated at one table in a shift, so it resolves it
+                   from the Supervisor's seating and refuses anything else.
+
+                   Who is at the bench is now asked after sign-in, at the
+                   bench, of the people standing there, and it takes as many
+                   names as there are. See [showOperatorPrompt]. */
 
                 if (_error != null) ...[
                   AlertBox(tone: AlertTone.bad, title: 'Sign in failed', message: _error!),

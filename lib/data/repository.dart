@@ -17,31 +17,18 @@ class SpdRepository {
 
   /* ------------------------------------------------------------- auth --- */
 
-  /// FR-5.1 — the member roster the login picker draws, available before sign-in.
-  ///
-  /// Name and employee code only. The table used to come back here too, from
-  /// the standing seat on packing_tables, and the picker printed it beside the
-  /// name — but members rotate, so that label was often wrong by the time
-  /// anyone read it. Where someone is sitting today comes from
-  /// [signInTables] instead.
-  Future<List<Map<String, dynamic>>> members() async {
-    final res = await api.get('/auth/members');
-    return (res['members'] as List).map(_m).toList();
-  }
+  /* The console no longer calls `/auth/members` or `/auth/tables`.
 
-  /// The seating for the open shift, for the sign-in screen.
-  ///
-  /// Each row is a table, who the Supervisor has put there today, and whether
-  /// that came from the shift's own seating or fell back to the standing plan
-  /// (`from_shift`). Available before anyone signs in, like the roster.
-  Future<({Map<String, dynamic>? shift, List<Map<String, dynamic>> tables})>
-      signInTables() async {
-    final res = await api.get('/auth/tables');
-    return (
-      shift: res['shift'] == null ? null : _m(res['shift']),
-      tables: (res['tables'] as List).map(_m).toList(),
-    );
-  }
+     Both are pre-authentication by necessity — they filled the sign-in
+     screen's two pickers, so they answered before anyone had a token, which
+     meant the staff roster and the whole seating plan were readable by anyone
+     who could load the login page. The pickers are gone: a member types their
+     own ID, the server resolves their table from the Supervisor's seating,
+     and who is at the bench is asked afterwards (see [shiftOperators]).
+
+     The endpoints themselves are left standing. Something older may still be
+     pointed at them, and retiring a public route is a decision for whoever
+     can see every client, not for the one that stopped calling it. */
 
   /// [tableNo] is the table a Table Member says they are on for this shift.
   /// Omitted, the server resolves one from the Supervisor's seating (or the
@@ -393,6 +380,38 @@ class SpdRepository {
           {'tableNo': a.tableNo, 'memberId': a.memberId},
       ],
     });
+  }
+
+  /* ------------------------------------------------------- operators --- */
+
+  /// Who is standing at each table this shift, by name, keyed by table number.
+  ///
+  /// A different question from [shiftAssignments], which answers which
+  /// *account* is seated where. Two or three people share a bench on a heavy
+  /// shift and most of them have no login at all, so these are typed in at the
+  /// table rather than picked from the user list.
+  Future<Map<String, List<String>>> shiftOperators(String shiftId) async {
+    final res = await api.get('/shifts/$shiftId/operators');
+    final raw = _m(res['operators']);
+    return {
+      for (final e in raw.entries)
+        e.key: [for (final n in (e.value as List? ?? const [])) '$n'],
+    };
+  }
+
+  /// Replace the names at one table, and give back what the server stored —
+  /// which is not always what was sent: blanks are dropped and a name entered
+  /// twice in two different cases is folded into one.
+  Future<List<String>> saveTableOperators(
+    String shiftId,
+    String tableNo,
+    List<String> names,
+  ) async {
+    final res = await api.put(
+      '/shifts/$shiftId/tables/$tableNo/operators',
+      body: {'names': names},
+    );
+    return [for (final n in (res['names'] as List? ?? const [])) '$n'];
   }
 
   /* -------------------------------------------------------- dashboard --- */

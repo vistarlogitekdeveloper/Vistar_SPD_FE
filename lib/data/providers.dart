@@ -279,6 +279,23 @@ typedef Seating = ({
 final seatingProvider =
     FutureProvider<Seating>((ref) => _scoped(ref, (r, s) => r.shiftAssignments(s)));
 
+/// Who is standing at each table this shift, by name, keyed by table number.
+///
+/// [seatingProvider] answers which account is seated where, which is the thing
+/// a token is signed against. This answers who is actually at the bench, and
+/// it is a list because benches are shared — see the repository method.
+final operatorsProvider = FutureProvider<Map<String, List<String>>>(
+    (ref) => _scoped(ref, (r, s) => r.shiftOperators(s)));
+
+/// The table whose operators still need naming, set when a Member signs in and
+/// cleared once the prompt has been answered or dismissed.
+///
+/// A provider rather than a call at the end of sign-in because the sign-in
+/// screen is gone from the tree by the time the prompt could open: the route
+/// changes on the same frame, taking its `BuildContext` with it. The shell
+/// watches this instead and opens the prompt wherever the member lands.
+final operatorPromptProvider = uiValue<String?>(null);
+
 final labelLogProvider = FutureProvider<List<LabelPrint>>((ref) => _scoped(ref, (r, s) => r.labelLog(s)));
 
 final reviewProvider = FutureProvider<ReviewPage>((ref) => _scoped(ref, (r, s) => r.review(s)));

@@ -5,8 +5,9 @@ import '../../core/theme.dart';
 import '../../data/repository.dart';
 
 /// `.plabel` — the ID label as it prints (FR-3.1): part number, description,
-/// invoice, GRN quantity, GRN date, packer, packing date and a scannable QR.
-/// No barcode and no vendor name: the QR is the one code the floor scans.
+/// invoice, the quantity in this pouch, GRN date, packer, packing date and a
+/// scannable QR. No barcode and no vendor name: the QR is the one code the
+/// floor scans.
 ///
 /// The QR modules come from the server, which is the
 /// same code that draws the PDF — so what a supervisor approves on screen is
@@ -84,9 +85,12 @@ class LabelCard extends StatelessWidget {
                     _Field('GRN DATE', fmtD(l.grnDate)),
                     _Field('PACKER', l.packer ?? '—'),
                     _Field('PACKED ON', l.packedOn == null ? '—' : fmtD(l.packedOn!)),
-                    // FR-3.1 still wants the GRN quantity on the label, so when
-                    // QTY is only this pack's share, both numbers are printed.
-                    if (u != null && u.isSplit) _Field('GRN TOTAL', '${nf(l.grnQty)} ${l.uom}'),
+                    /* The receipt's own quantity is not here. A split line used
+                       to add it as a GRN TOTAL field, so the sticker on a
+                       50-piece pouch also carried 350 — set in the same weight,
+                       a column along from the number actually in the bag. One
+                       quantity per sticker: what it is stuck to. The receipt
+                       total is on the GRN and in the console. */
                   ]),
                 ]),
               ),

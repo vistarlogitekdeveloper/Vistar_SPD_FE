@@ -11,6 +11,7 @@ import 'package:spd_frontend/models/models.dart';
 import 'package:spd_frontend/ui/widgets/common.dart';
 import 'package:spd_frontend/ui/widgets/label_card.dart';
 import 'package:spd_frontend/ui/widgets/line_detail.dart';
+import 'package:spd_frontend/ui/widgets/operator_prompt.dart';
 import 'package:spd_frontend/ui/widgets/pdf_preview_dialog.dart';
 import 'package:spd_frontend/ui/supervisor/allocation_screen.dart' show showAllocateDialog;
 import 'package:spd_frontend/ui/supervisor/lines_screen.dart' show showAdjustQtyDialog;
@@ -126,6 +127,108 @@ void main() {
       await tester.tap(find.text('INV-77001').last);
       await tester.pumpAndSettle();
       expect(chosen, 'b');
+    });
+
+    /* The invoice filter on a real shift. Material's menu grew to fit its
+       items and was bounded only by the window, so four hundred invoices
+       opened a list the height of the screen, over the table it was filtering,
+       with nothing to do but drag. These are the three things that fixed it. */
+
+    /// A dropdown of [n] invoices, mounted and opened.
+    Future<void> openInvoices(WidgetTester tester, int n, {void Function(String?)? onPick}) async {
+      await pumpIn(tester, SpdDropdown<String>(
+        value: '',
+        items: [
+          const DropdownMenuItem(value: '', child: Text('All invoices')),
+          for (var i = 0; i < n; i++)
+            DropdownMenuItem(value: 'INV-$i', child: Text('INV-${1000 + i}/2026-27')),
+        ],
+        onChanged: onPick ?? (_) {},
+      ));
+      await tester.tap(find.text('All invoices'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a long SpdDropdown is bounded and scrolls', (tester) async {
+      await openInvoices(tester, 400);
+
+      /* The panel's own list, named through the ListView rather than as "the
+         last Scrollable on screen" — the harness wraps every widget it pumps
+         in a SingleChildScrollView, so that phrase means two different things
+         depending on paint order. */
+      final position = tester.state<ScrollableState>(find.descendant(
+        of: find.byType(ListView),
+        matching: find.byType(Scrollable),
+      )).position;
+
+      final box = tester.getRect(find.byType(ListView));
+      expect(box.height, lessThanOrEqualTo(320),
+          reason: '400 invoices opened a ${box.height}px list — it has to be bounded');
+      expect(box.bottom, lessThanOrEqualTo(900),
+          reason: 'the panel ran off the bottom of the 900px viewport');
+
+      // And it is a real scroller rather than a clipped column: there is more
+      // below the fold, and the last invoice can be reached, which is the
+      // whole complaint.
+      expect(position.maxScrollExtent, greaterThan(0));
+      position.jumpTo(position.maxScrollExtent);
+      await tester.pumpAndSettle();
+      expect(find.text('INV-1399/2026-27'), findsOneWidget);
+    });
+
+    testWidgets('a long SpdDropdown can be searched', (tester) async {
+      String? chosen;
+      await openInvoices(tester, 400, onPick: (v) => chosen = v);
+
+      expect(find.byType(TextField), findsOneWidget,
+          reason: 'past a glanceable list, reading becomes hunting without a filter');
+      await tester.enterText(find.byType(TextField), '1207');
+      await tester.pumpAndSettle();
+
+      expect(find.text('INV-1207/2026-27'), findsOneWidget);
+      expect(find.text('INV-1208/2026-27'), findsNothing);
+
+      await tester.tap(find.text('INV-1207/2026-27'));
+      await tester.pumpAndSettle();
+      expect(chosen, 'INV-207');
+    });
+
+    testWidgets('a short SpdDropdown is not given a search box', (tester) async {
+      await openInvoices(tester, 4);
+      expect(find.byType(TextField), findsNothing,
+          reason: 'five rows do not need filtering, and the box would be in the way');
+    });
+
+    testWidgets('choosing the null row is not the same as dismissing', (tester) async {
+      /* The seating panel's "— unassigned —" is a real choice: it empties a
+         table. Returning the value bare made it indistinguishable from
+         pressing Escape, so clearing a table silently did nothing. */
+      var calls = 0;
+      String? chosen = 'tm.anita';
+      await pumpIn(tester, SpdDropdown<String?>(
+        value: 'tm.anita',
+        items: const [
+          DropdownMenuItem<String?>(value: null, child: Text('— unassigned —')),
+          DropdownMenuItem<String?>(value: 'tm.anita', child: Text('Anita Varma')),
+        ],
+        onChanged: (v) { calls++; chosen = v; },
+      ));
+
+      await tester.tap(find.text('Anita Varma').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('— unassigned —').last);
+      await tester.pumpAndSettle();
+      expect(calls, 1);
+      expect(chosen, isNull);
+
+      /* Whereas dismissing really does report nothing. Opened by the closed
+         field, which still reads "Anita Varma": nothing here feeds the chosen
+         value back in, exactly as the seating panel does not until it saves. */
+      await tester.tap(find.text('Anita Varma').first);
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+      expect(calls, 1, reason: 'a dismissal must not be reported as a choice');
     });
 
     testWidgets('an SpdRow drill-down fires for the row that was tapped', (tester) async {
@@ -544,9 +647,14 @@ void main() {
       /* Which pack this is sits on the caption of the quantity it qualifies,
          the way the printed label sets it — not on a line of its own. */
       expect(find.text('QTY (2 OF 2)'), findsOneWidget);
-      // FR-3.1 still wants the GRN quantity present, alongside the pack's share.
-      expect(find.text('GRN TOTAL'), findsOneWidget);
-      expect(find.text('350 NOS'), findsOneWidget);
+      expect(find.text('50 NOS'), findsOneWidget);
+      /* The receipt's own quantity is no longer on the sticker at all. It used
+         to be added as a GRN TOTAL field whenever MOQ split the line, so this
+         50-piece pouch also carried 350 in the same weight, one column along —
+         and the bolder of two quantities on a label read at arm's length is
+         the one that gets acted on. */
+      expect(find.text('GRN TOTAL'), findsNothing);
+      expect(find.text('350 NOS'), findsNothing);
     });
 
     testWidgets('an unsplit label shows no marker', (tester) async {
@@ -605,9 +713,15 @@ void main() {
         expectNoOverflow(tester, 'split LabelCard with a $n×$n QR');
 
         final quiet = tester.getRect(qrBox).inflate(4 * (62 / n));
-        final marker = find.text('GRN TOTAL');
+        /* The marker is the QTY caption now. It used to be the GRN TOTAL field
+           beside it, which was the last field in the grid and so the one
+           nearest the code — until the receipt total came off the sticker
+           altogether and took the measuring stick with it. The caption that
+           carries "2 OF 2" is the split marker proper, and it is in the same
+           grid, which is what this is really about. */
+        final marker = find.text('QTY (2 OF 2)');
         expect(tester.getRect(marker).overlaps(quiet), isFalse,
-            reason: 'v$n: the GRN total ${tester.getRect(marker)} is in the quiet zone $quiet');
+            reason: 'v$n: the split marker ${tester.getRect(marker)} is in the quiet zone $quiet');
 
         /* Where that one caption happens to end is not the guarantee, though.
            It is a cell in the field grid, every cell clips at one line, and the
@@ -615,7 +729,7 @@ void main() {
            The same edge bounds the part number and the description above it. */
         final grid = tester.getRect(find.ancestor(of: marker, matching: find.byType(Wrap)).first);
         expect(grid.contains(tester.getRect(marker).centerLeft), isTrue,
-            reason: 'v$n: that is not the grid the GRN total sits in');
+            reason: 'v$n: that is not the grid the split marker sits in');
         expect(grid.overlaps(quiet), isFalse,
             reason: 'v$n: the field grid $grid reaches into the quiet zone $quiet');
       }
@@ -929,6 +1043,7 @@ void main() {
   group('showPdfPreviewDialog', pdfPreviewTests);
   group('FR-3.5 label counts', labelCountTests);
   group('FR-3.5 print dialog', splitDialogTests);
+  group('the operator prompt', _operatorPromptTests);
 }
 
 /* ---- fakes ------------------------------------------------------------- */
@@ -1011,6 +1126,31 @@ class _FailingRepo extends SpdRepository {
   @override
   Future<LineDetail> line(String id) async =>
       throw ApiException('No connection to the SPD server');
+}
+
+/// Captures the names the operator prompt would have sent.
+class _OperatorRepo extends SpdRepository {
+  _OperatorRepo({this.existing = const {}}) : super(ApiClient(baseUrl: 'http://127.0.0.1:1/api'));
+
+  final Map<String, List<String>> existing;
+  String? toTable;
+  List<String>? sent;
+
+  @override
+  Future<List<Shift>> shifts() async => [
+        Shift(const {'id': 'A-2026-09-30', 'label': 'Shift A', 'status': 'Open'}),
+      ];
+
+  @override
+  Future<Map<String, List<String>>> shiftOperators(String shiftId) async => existing;
+
+  @override
+  Future<List<String>> saveTableOperators(
+      String shiftId, String tableNo, List<String> names) async {
+    toTable = tableNo;
+    sent = names;
+    return names;
+  }
 }
 
 /* ========================================================================= */
@@ -1217,5 +1357,119 @@ void splitDialogTests() {
     expect(find.text('QTY (1 OF 2)'), findsOneWidget);
     expect(find.text('QTY (2 OF 2)'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+}
+
+/* ========================================================================= */
+/* 10. the operator prompt — who is at the bench                             */
+/* ========================================================================= */
+
+/// FR-5.1, after it moved off the sign-in screen.
+///
+/// A roster picker used to stand on the login form: a member found themselves
+/// in a list of every operator in the company before they could type a
+/// password, and it named exactly one person. A bench often has three, and
+/// most of them have no account at all. So the question is asked after
+/// sign-in, at the table, and it takes as many names as the bench holds.
+void _operatorPromptTests() {
+  Widget host(SpdRepository repo, Widget Function(BuildContext, WidgetRef) child) => ProviderScope(
+        overrides: [repositoryProvider.overrideWithValue(repo)],
+        child: MaterialApp(
+          theme: buildTheme(light: false),
+          home: Scaffold(body: Builder(
+            builder: (c) => Consumer(builder: (c, r, _) => child(c, r)),
+          )),
+        ),
+      );
+
+  Future<void> open(WidgetTester tester, SpdRepository repo, {bool atSignIn = true}) async {
+    await tester.pumpWidget(host(repo, (c, r) => GradButton(
+          label: 'open',
+          onPressed: () => showOperatorPrompt(c, r, tableNo: 'T-01', atSignIn: atSignIn),
+        )));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('a bench takes more than one name', (tester) async {
+    final repo = _OperatorRepo();
+    await open(tester, repo);
+
+    expect(find.textContaining('Who is working at T-01'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).first, 'Anita Varma');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'Sunil Rao');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(repo.toTable, 'T-01');
+    expect(repo.sent, ['Anita Varma', 'Sunil Rao']);
+  });
+
+  testWidgets('the same person in two cases is one person', (tester) async {
+    final repo = _OperatorRepo();
+    await open(tester, repo);
+
+    await tester.enterText(find.byType(TextField).first, 'Anita Varma');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '  anita   varma ');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('already on this bench'), findsOneWidget);
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(repo.sent, ['Anita Varma']);
+  });
+
+  testWidgets('a name still in the box is not lost on Save', (tester) async {
+    /* Someone who types the last name and goes straight for Save has said
+       what they mean. Losing it to an unpressed Enter is the kind of small
+       betrayal that makes a screen feel broken. */
+    final repo = _OperatorRepo();
+    await open(tester, repo);
+
+    await tester.enterText(find.byType(TextField).first, 'Kiran Pillai');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(repo.sent, ['Kiran Pillai']);
+  });
+
+  testWidgets('the names already on the bench are what it opens with', (tester) async {
+    final repo = _OperatorRepo(existing: const {'T-01': ['Lata Thomas', 'Mohan Farooq']});
+    await open(tester, repo);
+
+    expect(find.text('Lata Thomas'), findsOneWidget);
+    expect(find.text('Mohan Farooq'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Remove Mohan Farooq'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(repo.sent, ['Lata Thomas']);
+  });
+
+  testWidgets('Not now saves nothing', (tester) async {
+    final repo = _OperatorRepo();
+    await open(tester, repo);
+
+    await tester.enterText(find.byType(TextField).first, 'Anita Varma');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Not now'));
+    await tester.pumpAndSettle();
+
+    expect(repo.sent, isNull, reason: 'dismissing the prompt must not write a bench');
   });
 }
