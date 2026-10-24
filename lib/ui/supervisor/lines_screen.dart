@@ -145,6 +145,7 @@ class _LinesScreenState extends ConsumerState<LinesScreen> {
               SpdCol('Vendor', width: 170),
               SpdCol('GRN Date', width: 110),
               SpdCol('GRN Qty', right: true, width: 106),
+              SpdCol('Pouches', right: true, width: 92),
               SpdCol('Packed', right: true, width: 92),
               SpdCol('Pending', right: true, width: 92),
               SpdCol('Status', width: 128),
@@ -173,6 +174,25 @@ class _LinesScreenState extends ConsumerState<LinesScreen> {
                       cell(l.vendor),
                       monoCell(fmtD(l.grnDate)),
                       monoCell('${nf(l.grnQty)} ${l.uom}'),
+                      /* FR-3.5 — how many pouches the MOQ makes of this line,
+                         which until now was visible nowhere on this screen.
+
+                         The split was working and looked as though it was not:
+                         a shift of 1,532 lines becomes 109,345 pouches, and the
+                         table showed 1,532 rows either way. Worse, the lines
+                         whose part is missing from the master sort to the top,
+                         so the first rows anybody reads are the ones that did
+                         not split.
+
+                         A dash rather than 1 when the part has no MOQ: "not in
+                         the master" and "one pouch" are different facts, and
+                         only the first is something to go and fix. */
+                      l.moq == null
+                          ? Text('—',
+                              style: mono(size: 13, color: Brand.txt3),
+                              textAlign: TextAlign.right)
+                          : monoCell(nf(l.labelCount),
+                              color: l.labelCount > 1 ? Brand.info : null),
                       monoCell(nf(l.packed)),
                       monoCell(nf(l.pending), color: l.pending > 0 ? Brand.warn : Brand.ok),
                       StatusPill(l.status),
