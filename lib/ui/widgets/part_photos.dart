@@ -17,7 +17,7 @@ import 'common.dart';
    photograph it; every shift after that the photographs are what the next
    person checks against. Asked once per PART: the queue's `part_has_photos`
    is what stops the second ask, and it is keyed by the part number exactly
-   as the GRN carries it (migration 234).
+   as the GRN carries it (migration 235).
    ========================================================================== */
 
 /// What has been photographed for one part. Auto-disposed so a gallery opened

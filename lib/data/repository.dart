@@ -469,7 +469,7 @@ class SpdRepository {
 
   /// FR-3.6 — what has been photographed for a part, metadata only. Keyed by
   /// the part number exactly as the GRN carries it, not the master's family
-  /// code (migration 234), so a part the master has never heard of can still
+  /// code (migration 235), so a part the master has never heard of can still
   /// have photographs.
   Future<List<PartPhoto>> partPhotos(String partNo) async {
     final res = await api.get('/masters/parts/${Uri.encodeComponent(partNo)}/photos');
