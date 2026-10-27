@@ -169,6 +169,25 @@ final currentShiftProvider = Provider<Shift?>((ref) {
 /// Bumped after any write, and on every live tick. Providers watch it so one
 /// increment refreshes the whole console — which is what keeps the sidebar
 /// counts, the tiles and the tables agreeing after a submission.
+/// One line's label preview, cached per line.
+///
+/// WHY THIS IS A PROVIDER AND NOT A FUTURE IN build().
+///
+/// The labels screen used to call `repository.labelPreview(line.id)` inside
+/// the tile's build, straight into a FutureBuilder. A Future built in build()
+/// is a NEW Future every rebuild — and scrolling rebuilds constantly — so the
+/// page fired one request per visible tile per frame, each landing to trigger
+/// another rebuild. The list stuttered and then stopped moving; the server saw
+/// a flood of identical reads.
+///
+/// A family provider is the fix rather than a cached field, because the cache
+/// has to survive the widget: a tile scrolled off and back on is a new State
+/// object, and would refetch all over again.
+final labelPreviewProvider =
+    FutureProvider.family<LabelPreview, String>((ref, lineId) {
+  return ref.watch(repositoryProvider).labelPreview(lineId);
+});
+
 final dataVersionProvider = uiValue<int>(0);
 
 /// FR-11.4 — the dashboard refreshes without a page reload. The prototype had a

@@ -244,22 +244,43 @@ class _LabelTile extends ConsumerWidget {
           ),
         ]),
         const SizedBox(height: 6),
-        FutureBuilder<LabelPreview>(
-          future: ref.read(repositoryProvider).labelPreview(line.id),
-          builder: (context, snap) {
-            if (!snap.hasData) {
-              return Container(
-                height: 150,
-                decoration: BoxDecoration(color: Brand.surface2, borderRadius: BorderRadius.circular(6)),
-              );
-            }
+        ref.watch(labelPreviewProvider(line.id)).when(
+          loading: () => Container(
+            height: 150,
+            decoration: BoxDecoration(
+                color: Brand.surface2, borderRadius: BorderRadius.circular(6)),
+          ),
+          error: (e, _) => Container(
+            height: 150,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+                color: Brand.surface2, borderRadius: BorderRadius.circular(6)),
+            child: Text('Preview unavailable',
+                style: body(size: 11, color: Brand.txt3)),
+          ),
+          data: (p) {
             // FR-3.5 — a line with an MOQ prints one label per pack, so the
-            // preview shows all of them rather than only the first.
-            final p = snap.data!;
+            // preview has to show that it is more than one.
+            //
+            // It no longer draws EVERY one. A piece-level line on a large GRN
+            // runs to thousands of labels, each carrying a QR code, and this
+            // sits inside the page's own scroll view where nothing is
+            // virtualised: laying them all out is what froze the screen. The
+            // requirement is that the preview does not pretend a line prints a
+            // single label, and a few plus a count says that just as plainly.
+            const shown = 3;
+            final visible = p.labels.take(shown).toList();
             return Column(children: [
-              for (final u in p.labels) ...[
+              for (final u in visible) ...[
                 LabelCard(preview: p, unit: u),
-                if (u != p.labels.last) const SizedBox(height: 10),
+                if (u != visible.last) const SizedBox(height: 10),
+              ],
+              if (p.labels.length > shown) ...[
+                const SizedBox(height: 10),
+                Text(
+                  '+ ${nf(p.labels.length - shown)} more label(s) print for this line.',
+                  style: body(size: 11, color: Brand.txt3),
+                ),
               ],
             ]);
           },
