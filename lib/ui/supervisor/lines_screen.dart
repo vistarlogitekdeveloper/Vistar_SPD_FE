@@ -40,6 +40,11 @@ class _LinesScreenState extends ConsumerState<LinesScreen> {
     final f = ref.watch(linesFilterProvider);
     final async = ref.watch(linesProvider);
     final locked = ref.watch(currentShiftProvider)?.finalised ?? false;
+    /* The same two roles the part-master endpoints let write. Management
+       reads the floor and does not change it. A finalised shift is a record
+       of what happened, so its pouch counts are not up for revision. */
+    final role = ref.watch(sessionProvider).user?.roleKey;
+    final canSetMoq = !locked && (role == 'admin' || role == 'supervisor');
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       PageHeader(
@@ -193,7 +198,15 @@ class _LinesScreenState extends ConsumerState<LinesScreen> {
                          that many to a pouch, so this many pouches. A dash in
                          both columns means the part is not in the master —
                          which is the one state worth going and fixing. */
-                      l.moq == null ? _dash() : monoCell(nf(l.moq)),
+                      /* A dash that can be answered. 264 lines of the current
+                         shift carry a part the master has never heard of, and
+                         the only cure used to be editing the spreadsheet and
+                         re-uploading four thousand rows to change one. */
+                      l.moq == null
+                          ? (canSetMoq
+                              ? _SetMoqCell(line: l)
+                              : _dash())
+                          : monoCell(nf(l.moq)),
                       l.moq == null
                           ? _dash()
                           : monoCell(nf(l.labelCount),
@@ -267,6 +280,100 @@ class _LinesScreenState extends ConsumerState<LinesScreen> {
       const AllocationLog(),
     ]);
   }
+}
+
+/// The MOQ cell for a part the master has never heard of: the dash, and a way
+/// to answer it.
+///
+/// Deliberately the cell itself rather than a button in the actions column.
+/// The gap is noticed while reading down the MOQ column, and that is where
+/// the cure should be — a row action would be three columns away from the
+/// thing it fixes.
+class _SetMoqCell extends ConsumerWidget {
+  const _SetMoqCell({required this.line});
+
+  final GrnLine line;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => Align(
+        alignment: Alignment.centerRight,
+        child: GhostButton(
+          label: 'Set',
+          icon: Icons.edit_outlined,
+          onPressed: () => showSetMoqDialog(context, ref, line),
+        ),
+      );
+}
+
+/// FR-3.5 — give one part its pack size.
+Future<void> showSetMoqDialog(BuildContext context, WidgetRef ref, GrnLine line) async {
+  final moq = TextEditingController();
+  String? error;
+  var saving = false;
+
+  await showSpdModal<void>(
+    context,
+    title: 'Pack size for ${line.partNo}',
+    subtitle: line.partDesc,
+    content: (context, setModalState) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      AlertBox(
+        tone: AlertTone.info,
+        title: 'This writes to the part master',
+        message: 'The MOQ is how many pieces go in one pouch, so it decides how many labels '
+            'this line prints. It is saved against ${line.partNo} exactly — other variants of '
+            'the same code are not touched — and every line of this part in an open shift is '
+            're-split straight away.',
+      ),
+      const SizedBox(height: 14),
+      Field(
+        label: 'Pieces per pouch',
+        hint: '${nf(line.grnQty)} ${line.uom} received on this line',
+        bottom: 0,
+        child: TextField(
+          controller: moq,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          style: mono(size: 14),
+          decoration: const InputDecoration(hintText: 'e.g. 1 for one piece per pouch'),
+          onChanged: (_) => setModalState(() => error = null),
+        ),
+      ),
+      if (error != null) ...[
+        const SizedBox(height: 14),
+        AlertBox(tone: AlertTone.bad, title: 'Not saved', message: error!),
+      ],
+    ]),
+    actions: (context, setModalState) => [
+      GhostButton(label: 'Cancel', onPressed: saving ? null : () => Navigator.pop(context)),
+      GradButton(
+        label: saving ? 'Saving…' : 'Save pack size',
+        icon: Icons.check_rounded,
+        small: true,
+        onPressed: saving
+            ? null
+            : () async {
+                final n = num.tryParse(moq.text.trim());
+                if (n == null || n <= 0) {
+                  setModalState(() => error = 'Enter how many pieces go in one pouch.');
+                  return;
+                }
+                setModalState(() { saving = true; error = null; });
+                try {
+                  final n2 = await ref.read(repositoryProvider).setPartMoq(line.partNo, n);
+                  if (context.mounted) Navigator.pop(context);
+                  invalidateAll(ref);
+                  if (context.mounted) {
+                    Toast.ok(context, 'Pack size saved',
+                        '${line.partNo} is ${nf(n)} per pouch — $n2 line(s) re-split.');
+                  }
+                } on ApiException catch (e) {
+                  setModalState(() { saving = false; error = e.message; });
+                }
+              },
+      ),
+    ],
+  );
 }
 
 /// The right-aligned em dash the MOQ and Pouches columns use for a part the

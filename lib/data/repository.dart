@@ -452,6 +452,19 @@ class SpdRepository {
     };
   }
 
+  /// FR-3.5 — give one part an MOQ, from the row where the gap was noticed.
+  ///
+  /// The master arrives as a spreadsheet, which is right for four thousand
+  /// parts and wrong for the one a Supervisor is looking at. The server
+  /// writes the part number exactly as given — not the stripped family code —
+  /// so sibling variants are left alone, and re-splits that part in Open
+  /// shifts. Returns how many lines changed.
+  Future<int> setPartMoq(String partNo, num moq) async {
+    final res = await api.put('/masters/parts/${Uri.encodeComponent(partNo)}/moq',
+        body: {'moq': moq});
+    return (res['resplit'] as num? ?? 0).toInt();
+  }
+
   /// Replace the names at one table, and give back what the server stored —
   /// which is not always what was sent: blanks are dropped and a name entered
   /// twice in two different cases is folded into one.
