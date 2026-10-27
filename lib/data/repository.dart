@@ -465,6 +465,46 @@ class SpdRepository {
     return (res['resplit'] as num? ?? 0).toInt();
   }
 
+  /* ------------------------------------------------------- part photos --- */
+
+  /// FR-3.6 — what has been photographed for a part, metadata only. Keyed by
+  /// the part number exactly as the GRN carries it, not the master's family
+  /// code (migration 234), so a part the master has never heard of can still
+  /// have photographs.
+  Future<List<PartPhoto>> partPhotos(String partNo) async {
+    final res = await api.get('/masters/parts/${Uri.encodeComponent(partNo)}/photos');
+    return _list(res['photos'], (m) => PartPhoto(partNo: '${res['partNo']}', raw: m));
+  }
+
+  /// One photograph's bytes. Fetched rather than handed to Image.network
+  /// because the route wants the bearer token, which an image tag never sends.
+  Future<Uint8List> partPhotoBytes(String partNo, String id) =>
+      api.download('/masters/parts/${Uri.encodeComponent(partNo)}/photos/${Uri.encodeComponent(id)}');
+
+  /// Adds photographs to a part; never replaces what is there. Returns how
+  /// many the server stored.
+  Future<int> uploadPartPhotos(
+    String partNo,
+    List<({String filename, String mime, Uint8List bytes})> photos,
+  ) async {
+    final form = FormData();
+    for (final p in photos) {
+      final [type, sub] = p.mime.split('/');
+      // The content type is set explicitly: without it Dio sends
+      // application/octet-stream and the server refuses anything not image/*.
+      form.files.add(MapEntry(
+        'photos',
+        MultipartFile.fromBytes(p.bytes, filename: p.filename, contentType: DioMediaType(type, sub)),
+      ));
+    }
+    final res = await api.upload('/masters/parts/${Uri.encodeComponent(partNo)}/photos', form);
+    return (res['photos'] as List? ?? const []).length;
+  }
+
+  /// A Supervisor's correction; the server refuses a Member.
+  Future<void> deletePartPhoto(String partNo, String id) =>
+      api.delete('/masters/parts/${Uri.encodeComponent(partNo)}/photos/${Uri.encodeComponent(id)}');
+
   /// Replace the names at one table, and give back what the server stored —
   /// which is not always what was sent: blanks are dropped and a name entered
   /// twice in two different cases is folded into one.

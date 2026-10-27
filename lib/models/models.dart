@@ -103,6 +103,11 @@ class GrnLine {
     return v == null || '$v'.isEmpty ? null : '$v';
   }
 
+  /// FR-3.6 — whether anyone has photographed this part yet. Start Packing
+  /// asks for photographs only while this is false, so a part is asked about
+  /// once, not once per line or per shift. Only the member queue sends it.
+  bool get partHasPhotos => raw['part_has_photos'] == true;
+
   /// The member's own share of a split line, when there is one (BR-04).
   num? get myShare => raw['my_share'] == null ? null : numOf(raw['my_share']);
 
@@ -110,6 +115,20 @@ class GrnLine {
       (raw['tables'] as List?)?.map((e) => '$e').toList() ?? const [];
 
   String get tablesLabel => tables.isEmpty ? '—' : tables.join(', ');
+}
+
+/// FR-3.6 — one photograph of a part. Metadata only; the bytes are fetched
+/// one at a time (SpdRepository.partPhotoBytes).
+class PartPhoto {
+  PartPhoto({required this.partNo, required this.raw});
+  final String partNo;
+  final Map<String, dynamic> raw;
+
+  String get id => '${raw['id']}';
+  String get mime => '${raw['mime'] ?? ''}';
+  int get bytes => intOf(raw['bytes']);
+  String get uploadedBy => '${raw['uploaded_by_name'] ?? raw['uploaded_by'] ?? ''}';
+  dynamic get uploadedAt => raw['uploaded_at'];
 }
 
 class PackingTxn {

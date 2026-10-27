@@ -6,6 +6,7 @@ import '../../core/format.dart';
 import '../../core/theme.dart';
 import '../../data/providers.dart';
 import '../widgets/common.dart';
+import '../widgets/part_photos.dart';
 import 'config_screen.dart' show PartMasterPanel;
 
 /// FR-3.5 — the part master, and what it has done to the floor.
@@ -168,6 +169,14 @@ Future<void> showPartLines(BuildContext context, WidgetRef ref, String partNo) a
         ('Quantity received', nf(t['quantity'] ?? 0)),
         ('Pouches created', nf(t['pouches'] ?? 0)),
       ]),
+      const SizedBox(height: 16),
+      /* FR-3.6 — photographs are keyed by the code the GRN carried, so the
+         family's are those of the master code and of every variant its lines
+         carried. */
+      PartPhotoGallery(partNos: {
+        '${part['part_no']}',
+        for (final l in lines) '${l['part_no']}'.trim().toUpperCase(),
+      }.toList()),
       const SizedBox(height: 16),
       if (lines.isEmpty)
         const AlertBox(

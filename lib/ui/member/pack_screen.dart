@@ -12,6 +12,7 @@ import '../../data/providers.dart';
 import '../../data/repository.dart';
 import '../../models/models.dart';
 import '../widgets/common.dart';
+import '../widgets/part_photos.dart';
 
 /// UC-05 / FR-6 — the touch-first packing screen: select the allocated part,
 /// Start (the time is recorded for you), pack, then enter the quantity and
@@ -160,6 +161,13 @@ class _Select extends ConsumerWidget {
   }
 
   Future<void> _start(BuildContext context, WidgetRef ref, String lineId) async {
+    // FR-3.6 — the first time a part is packed, photograph it before starting.
+    // Once photographs exist the queue says so and nobody is asked again.
+    final line = queue.lines.firstWhere((l) => l.id == lineId);
+    if (!line.partHasPhotos) {
+      final r = await promptPartPhotos(context, ref, partNo: line.partNo, partDesc: line.partDesc);
+      if (r == PhotoPrompt.cancelled || !context.mounted) return;
+    }
     try {
       final table = ref.read(sessionProvider).user?.role == 'Member' ? null : ref.read(previewTableProvider);
       final txn = await ref.read(repositoryProvider).startPacking(lineId: lineId, tableNo: table);
