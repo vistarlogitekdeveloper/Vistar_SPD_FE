@@ -56,10 +56,9 @@ class _LabelsScreenState extends ConsumerState<LabelsScreen> {
         crumb: 'GRN ·',
         accent: 'ID Labels',
         title: 'ID label print & preview',
-        blurb: 'Labels carry the part number, its description, the invoice, the packer, the '
-            'GRN date and a scannable QR — generated from the imported data, never typed. '
-            'The pouch quantity is not printed: a pouch holds one MOQ, and the QR carries '
-            'the number for anything that scans it. Reprints are audit-logged (BR-09).',
+        blurb: 'Labels carry the part number, its description, the invoice, the quantity in '
+            'the pouch, the packer and the GRN date, with a scannable QR — generated from '
+            'the imported data, never typed. Reprints are audit-logged (BR-09).',
         actions: [
           GhostButton(
             label: 'Save sheet (PDF)',

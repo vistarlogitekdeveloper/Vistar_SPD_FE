@@ -145,6 +145,7 @@ class _LinesScreenState extends ConsumerState<LinesScreen> {
               SpdCol('Vendor', width: 170),
               SpdCol('GRN Date', width: 110),
               SpdCol('GRN Qty', right: true, width: 106),
+              SpdCol('MOQ', right: true, width: 80),
               SpdCol('Pouches', right: true, width: 92),
               SpdCol('Packed', right: true, width: 92),
               SpdCol('Pending', right: true, width: 92),
@@ -187,10 +188,14 @@ class _LinesScreenState extends ConsumerState<LinesScreen> {
                          A dash rather than 1 when the part has no MOQ: "not in
                          the master" and "one pouch" are different facts, and
                          only the first is something to go and fix. */
+                      /* The MOQ beside the pouch count it produces, so the
+                         arithmetic on the row is legible: this many pieces,
+                         that many to a pouch, so this many pouches. A dash in
+                         both columns means the part is not in the master —
+                         which is the one state worth going and fixing. */
+                      l.moq == null ? _dash() : monoCell(nf(l.moq)),
                       l.moq == null
-                          ? Text('—',
-                              style: mono(size: 13, color: Brand.txt3),
-                              textAlign: TextAlign.right)
+                          ? _dash()
                           : monoCell(nf(l.labelCount),
                               color: l.labelCount > 1 ? Brand.info : null),
                       monoCell(nf(l.packed)),
@@ -263,6 +268,13 @@ class _LinesScreenState extends ConsumerState<LinesScreen> {
     ]);
   }
 }
+
+/// The right-aligned em dash the MOQ and Pouches columns use for a part the
+/// master has never heard of.
+///
+/// Not a zero and not a one: "no pack size on record" and "one pouch per
+/// piece" are different facts, and only the first is something to act on.
+Widget _dash() => Text('—', style: mono(size: 13, color: Brand.txt3), textAlign: TextAlign.right);
 
 /// BR-01 — writing off a remainder that will never be packed.
 ///

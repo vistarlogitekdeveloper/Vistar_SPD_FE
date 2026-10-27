@@ -86,6 +86,13 @@ class LabelCard extends StatelessWidget {
                      for anything that scans it. */
                   Wrap(spacing: 10, runSpacing: 4, children: [
                     _Field('INVOICE', l.invoiceNo),
+                    /* The POUCH quantity — what is in this bag, not what the
+                       receipt carried. Pack sizes of 10, 20 and 300 are all on
+                       the current shift, and the remainder pouch of a split
+                       line holds less than the full ones beside it; a storeman
+                       holding one bag has no other way to tell. Not the pack
+                       index: two full pouches of a line are interchangeable. */
+                    _Field('QTY', '${nf(u?.qty ?? l.grnQty)} ${l.uom}'),
                     _Field('PACKER', l.packer ?? '—'),
                     _Field('GRN DATE', fmtD(l.grnDate)),
                   ]),

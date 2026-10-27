@@ -621,12 +621,12 @@ void main() {
       for (final text in ['90210-ABX', 'Front Bumper Bracket LH', 'INV-77001']) {
         expect(find.textContaining(text), findsWidgets, reason: 'the label omits $text');
       }
-      // Three fields, and no quantity among them.
-      for (final caption in ['INVOICE', 'PACKER', 'GRN DATE']) {
+      // Four fields: the pouch quantity is back, the packing date is not.
+      for (final caption in ['INVOICE', 'QTY', 'PACKER', 'GRN DATE']) {
         expect(find.text(caption), findsOneWidget, reason: 'the label omits $caption');
       }
-      expect(find.textContaining('270'), findsNothing,
-          reason: 'the quantity came off the sticker');
+      expect(find.textContaining('270'), findsWidgets,
+          reason: 'an unsplit line is one pouch of the whole quantity');
       expect(find.text('PACKED ON'), findsNothing);
     });
 
@@ -665,24 +665,24 @@ void main() {
 
     /* FR-3.5 — the split. */
 
-    testWidgets('a split label carries no quantity and no pouch marker', (tester) async {
-      /* MOQ 300 against a GRN quantity of 350 is still two pouches — the
-         split is unchanged. What changed is that the sticker no longer says
-         which pouch it is or how much is in it, so this one and the 300 are
-         the same label. Neither number was earning its place once a pouch
-         held one MOQ and most MOQs were 1. */
+    testWidgets('a split label shows its own pouch quantity, not the line total', (tester) async {
+      /* MOQ 300 against a GRN quantity of 350: this is the remainder pouch
+         and it holds 50. A label showing 350 would have someone pack the
+         wrong bag, which is why the field is the pouch’s own rather than
+         the line’s. The pack index stays off — two full pouches of a line
+         are interchangeable, so numbering them tells a picker nothing. */
       await pumpIn(tester, LabelCard(
         preview: preview(grnQty: 350, moq: 300, labels: [unit(300, index: 1, of: 2), unit(50, index: 2, of: 2)]),
         unit: unit(50, index: 2, of: 2),
       ));
       expectNoOverflow(tester, 'split LabelCard');
-      expect(find.text('50 NOS'), findsNothing, reason: 'the pouch quantity is gone');
-      expect(find.text('350 NOS'), findsNothing, reason: 'and so is the receipt total');
+      expect(find.text('50 NOS'), findsOneWidget, reason: 'this pouch holds 50');
+      expect(find.text('350 NOS'), findsNothing, reason: 'the receipt total must not appear');
       expect(find.text('GRN TOTAL'), findsNothing);
-      expect(find.textContaining(' OF '), findsNothing, reason: 'and the pouch marker');
+      expect(find.textContaining(' OF '), findsNothing, reason: 'and no pouch marker');
 
-      // What a storeman is left with, which is the point of the change.
       expect(find.text('INVOICE'), findsOneWidget);
+      expect(find.text('QTY'), findsOneWidget);
       expect(find.text('PACKER'), findsOneWidget);
       expect(find.text('GRN DATE'), findsOneWidget);
     });
