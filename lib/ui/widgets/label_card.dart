@@ -28,14 +28,16 @@ class LabelCard extends StatelessWidget {
   static const _h = 70.87;
   static const _qr = 42.0;
   static const _quiet = 4 * _qr / 25;
-  static const _m = 6.0;
+  // The blank border left and right, as labels.js's M: a 6pt one lost the
+  // edges of the first sheets to the printer's drift.
+  static const _m = 10.0;
 
   @override
   Widget build(BuildContext context) {
     final l = preview.line;
     final u = unit ?? (preview.labels.isEmpty ? null : preview.first);
     final s = width / _w;
-    final qrLeft = _w - _quiet - _qr;
+    final qrLeft = _w - _m - _qr;
     final band = qrLeft - _quiet - _m;
 
     TextStyle ink(double size) =>
