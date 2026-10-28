@@ -193,6 +193,7 @@ class SpdRepository {
           ),
       ],
       alreadyPrinted: res['alreadyPrinted'] == true,
+      printedOn: res['printedOn'] as String?,
     );
   }
 
@@ -703,11 +704,16 @@ class LabelPreview {
     required this.template,
     required this.labels,
     required this.alreadyPrinted,
+    this.printedOn,
   });
   final GrnLine line;
   final String template;
   final List<LabelUnit> labels;
   final bool alreadyPrinted;
+
+  /// 'YYYY-MM-DD' — the date a print pressed now would carry, in the floor's
+  /// time zone. The server stamps the sheet with the same when it is built.
+  final String? printedOn;
 
   /// The first label, for the callers that only ever show one.
   LabelUnit get first => labels.first;

@@ -603,19 +603,22 @@ void main() {
           qr: List.generate(qrSize, (r) => List.generate(qrSize, (c) => (r + c).isEven)),
         );
 
-    GrnLine grn({num grnQty = 270, num? moq, String? packedOn = '2026-10-28'}) => GrnLine({
+    // packed_on is the shift's date, which the sticker must NOT print: the date
+    // on it is the day Print is pressed (printedOn, from the server).
+    GrnLine grn({num grnQty = 270, num? moq, String? packer = 'Rajesh Menon'}) => GrnLine({
           'id': 'L001', 'invoice_no': 'INV-77001', 'part_no': '90210-ABX',
           'part_desc': 'Front Bumper Bracket LH', 'uom': 'NOS',
           'vendor': 'DynaFast Fasteners', 'grn_date': '2026-09-09',
-          'grn_qty': grnQty, 'moq': moq, 'packed_on': packedOn,
+          'grn_qty': grnQty, 'moq': moq, 'packed_on': '2026-09-10', 'packer': packer,
         });
 
-    LabelPreview preview({List<LabelUnit>? labels, num grnQty = 270, num? moq, String? packedOn = '2026-10-28'}) =>
+    LabelPreview preview({List<LabelUnit>? labels, num grnQty = 270, num? moq, String? packer = 'Rajesh Menon'}) =>
         LabelPreview(
-          line: grn(grnQty: grnQty, moq: moq, packedOn: packedOn),
+          line: grn(grnQty: grnQty, moq: moq, packer: packer),
           template: 'SPD 2-up 100×25',
           labels: labels ?? [unit(grnQty)],
           alreadyPrinted: false,
+          printedOn: '2026-10-28',
         );
 
     /// The QR's own box: the only square SizedBox on the sticker.
@@ -624,24 +627,25 @@ void main() {
       matching: find.byWidgetPredicate((w) => w is SizedBox && w.width != null && w.width == w.height),
     );
 
-    testWidgets('prints what the floor’s sample sticker carries, and nothing else', (tester) async {
-      /* Part number, description, the pouch quantity, the packing date and
-         the QR — the 50 × 25 mm sample the floor works from. The invoice is
-         in the QR; the packer, the vendor and the GRN date are not printed. */
+    testWidgets('prints what the floor asked for, and nothing else', (tester) async {
+      /* The 50 × 25 mm sample — part number, description, pouch quantity,
+         date, QR — with the invoice and the packer added. The vendor and the
+         GRN date are not printed. */
       await pumpIn(tester, LabelCard(preview: preview()));
       expectNoOverflow(tester, 'LabelCard');
-      for (final text in ['90210-ABX', 'Front Bumper Bracket LH', '270 NOS', '28-Oct-26']) {
+      for (final text in ['90210-ABX', 'Front Bumper Bracket LH', '270 NOS', 'INV INV-77001', 'Rajesh Menon', '28-Oct-26']) {
         expect(find.text(text), findsOneWidget, reason: 'the sticker omits $text');
       }
-      for (final absent in ['INV-77001', '09-Sep', 'DynaFast', 'INVOICE', 'QTY', 'PACKER', 'GRN DATE']) {
+      for (final absent in ['Sep', 'DynaFast', 'INVOICE', 'QTY', 'PACKER', 'GRN DATE']) {
         expect(find.textContaining(absent), findsNothing, reason: 'the sticker prints $absent');
       }
     });
 
-    testWidgets('the date is the packing date, and a dash until there is one', (tester) async {
-      await pumpIn(tester, LabelCard(preview: preview(packedOn: null)));
-      expect(find.text('—'), findsOneWidget);
-      expect(find.textContaining('Sep'), findsNothing, reason: 'fell back to the GRN date');
+    testWidgets('the date is the day Print is pressed, and an unallocated packer is a dash', (tester) async {
+      await pumpIn(tester, LabelCard(preview: preview(packer: null)));
+      expect(find.text('28-Oct-26'), findsOneWidget, reason: 'the print date, from the server');
+      expect(find.textContaining('Sep'), findsNothing, reason: 'printed the shift or GRN date');
+      expect(find.text('—'), findsOneWidget, reason: 'no packer until the line is allocated');
     });
 
     testWidgets('only the QR is painted — no barcode', (tester) async {

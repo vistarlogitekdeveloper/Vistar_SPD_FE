@@ -6,8 +6,8 @@ import '../../data/repository.dart';
 
 /// `.plabel` — one ID sticker as it prints (FR-3.1): 50 × 25 mm, two to a
 /// 100 × 25 mm row. Part number across the top; description, the quantity in
-/// this pouch and the packing date down the left; the QR on the right. The
-/// invoice travels in the QR.
+/// this pouch, the invoice, the packer and the date it is printed down the
+/// left; the QR on the right.
 ///
 /// Laid out from the same points as services/labels.js on the server, scaled
 /// to [width], and the QR modules come from that same code — so what a
@@ -60,16 +60,20 @@ class LabelCard extends StatelessWidget {
       ),
       child: Stack(children: [
         // A part number gives up size before characters, as on paper.
-        at(5, _w - 2 * _m, FittedBox(
+        at(4, _w - 2 * _m, FittedBox(
           fit: BoxFit.scaleDown,
           alignment: Alignment.centerLeft,
           child: Text(l.partNo, style: ink(10.5), maxLines: 1, softWrap: false),
         )),
-        at(22, band, line(l.partDesc, 8)),
+        // The left column, at labels.js's ROWS.
+        at(18, band, line(l.partDesc, 7.5)),
         // The POUCH quantity — what is in this bag, not what the receipt carried.
-        at(38, band, line('${nf(u?.qty ?? l.grnQty)} ${l.uom}'.trim(), 9)),
-        // The packing date, not the GRN date; a dash until the line has one.
-        at(54, band, line(l.packedOn == null ? '—' : fmtLabelDate(l.packedOn!), 8.5)),
+        at(28, band, line('${nf(u?.qty ?? l.grnQty)} ${l.uom}'.trim(), 8.5)),
+        at(39, band, line(l.invoiceNo.isEmpty ? '—' : 'INV ${l.invoiceNo}', 7)),
+        // Whoever staffs the tables the line is allocated to; a dash until then.
+        at(48.5, band, line(l.packer ?? '—', 7)),
+        // The day Print is pressed — the server stamps the sheet with the same.
+        at(58, band, line(fmtLabelDate(preview.printedOn ?? DateTime.now().toIso8601String()), 7.5)),
         Positioned(
           left: qrLeft * s,
           top: (_h - _quiet - _qr) * s,
