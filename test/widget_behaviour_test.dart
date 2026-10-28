@@ -603,46 +603,63 @@ void main() {
           qr: List.generate(qrSize, (r) => List.generate(qrSize, (c) => (r + c).isEven)),
         );
 
-    LabelPreview preview({List<LabelUnit>? labels, num grnQty = 270, num? moq}) => LabelPreview(
-          line: GrnLine({
-            'id': 'L001', 'invoice_no': 'INV-77001', 'part_no': '90210-ABX',
-            'part_desc': 'Front Bumper Bracket LH', 'uom': 'NOS',
-            'vendor': 'DynaFast Fasteners', 'grn_date': '2026-09-09',
-            'grn_qty': grnQty, 'moq': moq,
-          }),
-          template: 'SPD Standard 100×60',
+    GrnLine grn({num grnQty = 270, num? moq, String? packedOn = '2026-10-28'}) => GrnLine({
+          'id': 'L001', 'invoice_no': 'INV-77001', 'part_no': '90210-ABX',
+          'part_desc': 'Front Bumper Bracket LH', 'uom': 'NOS',
+          'vendor': 'DynaFast Fasteners', 'grn_date': '2026-09-09',
+          'grn_qty': grnQty, 'moq': moq, 'packed_on': packedOn,
+        });
+
+    LabelPreview preview({List<LabelUnit>? labels, num grnQty = 270, num? moq, String? packedOn = '2026-10-28'}) =>
+        LabelPreview(
+          line: grn(grnQty: grnQty, moq: moq, packedOn: packedOn),
+          template: 'SPD 2-up 100×25',
           labels: labels ?? [unit(grnQty)],
           alreadyPrinted: false,
         );
 
-    testWidgets('prints the fields FR-3.1 requires', (tester) async {
+    /// The QR's own box: the only square SizedBox on the sticker.
+    final qrBox = find.descendant(
+      of: find.byType(LabelCard),
+      matching: find.byWidgetPredicate((w) => w is SizedBox && w.width != null && w.width == w.height),
+    );
+
+    testWidgets('prints what the floor’s sample sticker carries, and nothing else', (tester) async {
+      /* Part number, description, the pouch quantity, the packing date and
+         the QR — the 50 × 25 mm sample the floor works from. The invoice is
+         in the QR; the packer, the vendor and the GRN date are not printed. */
       await pumpIn(tester, LabelCard(preview: preview()));
       expectNoOverflow(tester, 'LabelCard');
-      for (final text in ['90210-ABX', 'Front Bumper Bracket LH', 'INV-77001']) {
-        expect(find.textContaining(text), findsWidgets, reason: 'the label omits $text');
+      for (final text in ['90210-ABX', 'Front Bumper Bracket LH', '270 NOS', '28-Oct-26']) {
+        expect(find.text(text), findsOneWidget, reason: 'the sticker omits $text');
       }
-      // Four fields: the pouch quantity is back, the packing date is not.
-      for (final caption in ['INVOICE', 'QTY', 'PACKER', 'GRN DATE']) {
-        expect(find.text(caption), findsOneWidget, reason: 'the label omits $caption');
+      for (final absent in ['INV-77001', '09-Sep', 'DynaFast', 'INVOICE', 'QTY', 'PACKER', 'GRN DATE']) {
+        expect(find.textContaining(absent), findsNothing, reason: 'the sticker prints $absent');
       }
-      expect(find.textContaining('270'), findsWidgets,
-          reason: 'an unsplit line is one pouch of the whole quantity');
-      expect(find.text('PACKED ON'), findsNothing);
     });
 
-    testWidgets('prints no vendor name and no barcode', (tester) async {
-      // The QR is the one code the floor scans; the vendor is on the paperwork.
+    testWidgets('the date is the packing date, and a dash until there is one', (tester) async {
+      await pumpIn(tester, LabelCard(preview: preview(packedOn: null)));
+      expect(find.text('—'), findsOneWidget);
+      expect(find.textContaining('Sep'), findsNothing, reason: 'fell back to the GRN date');
+    });
+
+    testWidgets('only the QR is painted — no barcode', (tester) async {
       await pumpIn(tester, LabelCard(preview: preview()));
-      expect(find.textContaining('DynaFast'), findsNothing, reason: 'the vendor name is printed');
       final painters = tester
           .widgetList<CustomPaint>(find.descendant(of: find.byType(LabelCard), matching: find.byType(CustomPaint)))
           .where((p) => p.painter != null);
       expect(painters, hasLength(1), reason: 'only the QR should be painted, not a barcode');
     });
 
-    testWidgets('renders in light theme and at a narrow width', (tester) async {
-      await pumpIn(tester, LabelCard(preview: preview(), width: 260), light: true, width: 390);
-      expectNoOverflow(tester, 'LabelCard narrow');
+    testWidgets('is a 50 × 25 mm sticker at any width', (tester) async {
+      for (final w in [330.0, 260.0]) {
+        await pumpIn(tester, LabelCard(preview: preview(), width: w), light: true, width: 390);
+        expectNoOverflow(tester, 'LabelCard at $w');
+        final size = tester.getSize(find.byType(LabelCard));
+        expect(size.width, w);
+        expect(size.height, closeTo(w * 70.87 / 141.73, 0.01), reason: 'not 2 : 1 at $w');
+      }
     });
 
     testWidgets('survives an empty QR rather than blanking the screen', (tester) async {
@@ -663,14 +680,10 @@ void main() {
       expect(find.textContaining('90210-ABX'), findsWidgets);
     });
 
-    /* FR-3.5 — the split. */
-
-    testWidgets('a split label shows its own pouch quantity, not the line total', (tester) async {
-      /* MOQ 300 against a GRN quantity of 350: this is the remainder pouch
-         and it holds 50. A label showing 350 would have someone pack the
-         wrong bag, which is why the field is the pouch’s own rather than
-         the line’s. The pack index stays off — two full pouches of a line
-         are interchangeable, so numbering them tells a picker nothing. */
+    testWidgets('a split sticker shows its own pouch quantity, not the line total', (tester) async {
+      /* MOQ 300 against a GRN quantity of 350: this is the remainder pouch and
+         it holds 50. A sticker showing 350 would have someone pack the wrong
+         bag. No pack index — two full pouches are interchangeable. */
       await pumpIn(tester, LabelCard(
         preview: preview(grnQty: 350, moq: 300, labels: [unit(300, index: 1, of: 2), unit(50, index: 2, of: 2)]),
         unit: unit(50, index: 2, of: 2),
@@ -678,105 +691,29 @@ void main() {
       expectNoOverflow(tester, 'split LabelCard');
       expect(find.text('50 NOS'), findsOneWidget, reason: 'this pouch holds 50');
       expect(find.text('350 NOS'), findsNothing, reason: 'the receipt total must not appear');
-      expect(find.text('GRN TOTAL'), findsNothing);
       expect(find.textContaining(' OF '), findsNothing, reason: 'and no pouch marker');
-
-      expect(find.text('INVOICE'), findsOneWidget);
-      expect(find.text('QTY'), findsOneWidget);
-      expect(find.text('PACKER'), findsOneWidget);
-      expect(find.text('GRN DATE'), findsOneWidget);
     });
-
-    testWidgets('an unsplit label shows no marker', (tester) async {
-      await pumpIn(tester, LabelCard(preview: preview()));
-      expect(find.textContaining(' OF '), findsNothing,
-          reason: 'a line that was never split must look exactly as it did before MOQ existed');
-      expect(find.text('GRN TOTAL'), findsNothing,
-          reason: 'and must not print the quantity twice');
-    });
-
-    /* The QR is no longer always 25 modules square. The backend encoder picks
-       the smallest version that holds the payload, so a long part number now
-       arrives as 29 or 33 modules — versions 3 and 4, where it stops, because a
-       denser code does not print reliably at 56pt. The painter sizes its cells
-       from modules.length, so this should cost the layout nothing, which is a
-       claim worth checking rather than assuming. */
-
-    /// Finds the QR's own 62pt box, which is the only square of that size.
-    final qrBox = find.descendant(
-      of: find.byType(LabelCard),
-      matching: find.byWidgetPredicate(
-          (w) => w is SizedBox && w.width == 62 && w.height == 62),
-    );
 
     testWidgets('a bigger QR matrix costs the layout nothing', (tester) async {
+      final qrSizes = <int, Size>{};
       final cardSizes = <int, Size>{};
       for (final n in [25, 29, 33]) {
         await pumpIn(tester, LabelCard(preview: preview(labels: [unit(270, qrSize: n)])));
         expectNoOverflow(tester, 'LabelCard with a $n×$n QR');
-        expect(tester.getSize(qrBox), const Size(62, 62),
-            reason: '$n modules should still draw into the same 62pt square');
+        qrSizes[n] = tester.getSize(qrBox);
         cardSizes[n] = tester.getSize(find.byType(LabelCard));
       }
       for (final n in [29, 33]) {
-        expect(cardSizes[n], cardSizes[25], reason: 'a $n-module QR moved the label about');
+        expect(qrSizes[n], qrSizes[25], reason: '$n modules should draw into the same square');
+        expect(cardSizes[n], cardSizes[25], reason: 'a $n-module QR moved the sticker about');
       }
     });
 
-    testWidgets('the split marker stays out of the QR’s quiet zone', (tester) async {
-      /* A scanner finds a code by the band of white around it — four modules on
-         every side — and the split marker is the one thing on the label set
-         anywhere near it. The PDF puts the marker in the column directly under
-         the code and holds it four modules below the bottom edge; on screen it
-         is in the left-hand column instead, clear of the code sideways rather
-         than beneath it. Same rule, different route, so it is measured rather
-         than assumed: the gutter between the two columns is a fixed 10pt, and
-         four modules of a 25-module code is 9.92 of them. */
-      for (final n in [25, 29, 33]) {
-        await pumpIn(tester, LabelCard(
-          preview: preview(grnQty: 350, moq: 300, labels: [
-            unit(300, index: 1, of: 2, qrSize: n),
-            unit(50, index: 2, of: 2, qrSize: n),
-          ]),
-          unit: unit(50, index: 2, of: 2, qrSize: n),
-        ));
-        expectNoOverflow(tester, 'split LabelCard with a $n×$n QR');
-
-        final quiet = tester.getRect(qrBox).inflate(4 * (62 / n));
-        /* The measuring stick has changed twice now — it was the GRN TOTAL
-           field, then the QTY caption, and both came off the sticker. GRN
-           DATE is the last of the three that are left and so the one
-           nearest the code; the grid it sits in is what actually has to
-           clear the quiet zone, and that is checked below. */
-        final marker = find.text('GRN DATE');
-        expect(tester.getRect(marker).overlaps(quiet), isFalse,
-            reason: 'v$n: the split marker ${tester.getRect(marker)} is in the quiet zone $quiet');
-
-        /* Where that one caption happens to end is not the guarantee, though.
-           It is a cell in the field grid, every cell clips at one line, and the
-           grid is what has to clear the code — so the grid is what is measured.
-           The same edge bounds the part number and the description above it. */
-        final grid = tester.getRect(find.ancestor(of: marker, matching: find.byType(Wrap)).first);
-        expect(grid.contains(tester.getRect(marker).centerLeft), isTrue,
-            reason: 'v$n: that is not the grid the split marker sits in');
-        expect(grid.overlaps(quiet), isFalse,
-            reason: 'v$n: the field grid $grid reaches into the quiet zone $quiet');
-      }
-    });
-
-    testWidgets('over-long fields stop at the column edge, clear of the QR', (tester) async {
-      /* The PDF had exactly this wrong: its three fields were pitched a flat
-         78pt apart with no width to stop them, so GRN DATE's value was drawn
-         through the code's left edge on every label, inking modules that
-         should have been white. On screen the fields are a Wrap in the
-         left-hand column with the code as its sibling, so the column is what
-         bounds them rather than a width each — but that is a claim about what
-         Flutter does with the constraints, and the preview is what a
-         supervisor approves. So it is measured, with every field long enough
-         to fill its column and reach for the code if anything would let it.
-
-         The gutter is a fixed 10pt and four modules of a 25-module code is
-         9.92 of them, which is the whole of the margin here. */
+    testWidgets('nothing on the sticker reaches the QR’s quiet zone, however long', (tester) async {
+      /* A scanner finds the code by four modules of white on every side. The
+         part number spans the sticker above the code and the left column sits
+         beside it, so both are measured with every field as long as it can
+         honestly be. */
       for (final n in [25, 29, 33]) {
         await pumpIn(tester, LabelCard(
           preview: LabelPreview(
@@ -785,10 +722,10 @@ void main() {
               'invoice_no': 'INV-77003/2026-27/04-BLUEVOLT-MUMBAI-1',
               'part_no': '90210-ABX-BRACKET-FRONT-LH-REV12-A/B.012',
               'part_desc': 'Front bumper mounting bracket, left hand, revision 12, powder coated',
-              'uom': 'NOS', 'vendor': 'DynaFast Fasteners & Pressings (Chakan) Private Limited',
-              'grn_date': '2026-05-05', 'grn_qty': 1234567, 'moq': 300,
+              'uom': 'NOS', 'grn_date': '2026-05-05', 'grn_qty': 1234567, 'moq': 300,
+              'packed_on': '2026-09-28',
             }),
-            template: 'SPD Standard 100×60',
+            template: 'SPD 2-up 100×25',
             labels: [unit(300, index: 1, of: 2, qrSize: n), unit(50, index: 2, of: 2, qrSize: n)],
             alreadyPrinted: false,
           ),
@@ -796,7 +733,11 @@ void main() {
         ));
         expectNoOverflow(tester, 'LabelCard with over-long fields and a $n×$n QR');
 
-        final quiet = tester.getRect(qrBox).inflate(4 * (62 / n));
+        final qr = tester.getRect(qrBox);
+        final quiet = qr.inflate(4 * (qr.width / n));
+        final card = tester.getRect(find.byType(LabelCard));
+        expect(card.contains(quiet.topLeft) && card.contains(quiet.bottomRight - const Offset(0.01, 0.01)), isTrue,
+            reason: 'v$n: the quiet zone $quiet runs off the sticker $card');
         for (final element in find
             .descendant(of: find.byType(LabelCard), matching: find.byType(Text))
             .evaluate()) {
@@ -843,18 +784,14 @@ void main() {
 
         /* The modules overlap by a hair so antialiasing leaves no white seam
            between them. That bleed has to stay a fraction of a cell: a flat one
-           would dilate a 33-module code half again as much as the 25-module
-           code it replaced, and a QR that prints too heavy stops scanning. */
+           would dilate a 33-module code half again as much as a 25-module one,
+           and a QR that prints too heavy stops scanning. */
         final bleed = canvas.rects.first.width - cell;
         expect(bleed, greaterThan(0), reason: 'v$n: modules would show seams');
         expect(bleed / cell, closeTo(0.16, 0.02),
             reason: 'v$n: modules bleed ${(bleed / cell * 100).round()}% of a cell');
 
-        /* And the code has to fill its box. A dark matrix reaches both edges,
-           overhanging only by the bleed on the last row and column — which has
-           nowhere to fall but the quiet zone, and 0.16 of a module is far
-           inside it. The block above cannot show this: its dark modules stop
-           well short of both edges. */
+        // And a dark matrix fills its box, overhanging only by the bleed.
         final full = List.generate(n, (_) => List.filled(n, true));
         await pumpIn(tester, LabelCard(preview: preview(labels: [
           LabelUnit(index: 1, of: 1, qty: 270, payload: 'x', qr: full),
@@ -1385,7 +1322,7 @@ void splitDialogTests() {
     expect(find.textContaining('300 + 50'), findsOneWidget);
     // Two labels, neither of them numbered or carrying a quantity: the
     // dialog states the arithmetic, the stickers no longer repeat it.
-    expect(find.text('GRN DATE'), findsNWidgets(2));
+    expect(find.text('76621-MFS'), findsNWidgets(2));
     expect(find.textContaining(' OF '), findsNothing);
     expect(tester.takeException(), isNull);
   });

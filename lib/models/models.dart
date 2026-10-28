@@ -398,7 +398,7 @@ class SpdConfig {
         'hourly': 60,
         'refresh': 60,
         'emails': <String>[],
-        'labelTpl': 'SPD Standard 100×60',
+        'labelTpl': 'SPD 2-up 100×25',
         'grnCols': <String>[],
         'grnColsOptional': <String>[],
       });

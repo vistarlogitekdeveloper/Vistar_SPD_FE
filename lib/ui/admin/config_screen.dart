@@ -175,7 +175,8 @@ class _ConfigScreenState extends ConsumerState<ConfigScreen> {
   bool _loaded = false;
   bool _busy = false;
 
-  static const _templates = ['SPD Standard 100×60', 'SPD Compact 70×40', 'Customer format A'];
+  // One stock: two 50 × 25 mm stickers on a 100 × 25 mm row (services/labels.js).
+  static const _templates = ['SPD 2-up 100×25'];
 
   @override
   void dispose() {

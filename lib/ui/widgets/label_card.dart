@@ -4,14 +4,14 @@ import '../../core/format.dart';
 import '../../core/theme.dart';
 import '../../data/repository.dart';
 
-/// `.plabel` — the ID label as it prints (FR-3.1): part number, description,
-/// invoice, the quantity in this pouch, GRN date, packer, packing date and a
-/// scannable QR. No barcode and no vendor name: the QR is the one code the
-/// floor scans.
+/// `.plabel` — one ID sticker as it prints (FR-3.1): 50 × 25 mm, two to a
+/// 100 × 25 mm row. Part number across the top; description, the quantity in
+/// this pouch and the packing date down the left; the QR on the right. The
+/// invoice travels in the QR.
 ///
-/// The QR modules come from the server, which is the
-/// same code that draws the PDF — so what a supervisor approves on screen is
-/// what the printer produces, rather than two implementations that agree today.
+/// Laid out from the same points as services/labels.js on the server, scaled
+/// to [width], and the QR modules come from that same code — so what a
+/// supervisor approves on screen is what the printer produces.
 class LabelCard extends StatelessWidget {
   const LabelCard({super.key, required this.preview, this.unit, this.width = 330});
 
@@ -23,12 +23,33 @@ class LabelCard extends StatelessWidget {
 
   final double width;
 
+  // The sticker and its parts in PDF points, as labels.js draws them.
+  static const _w = 141.73;
+  static const _h = 70.87;
+  static const _qr = 42.0;
+  static const _quiet = 4 * _qr / 25;
+  static const _m = 6.0;
+
   @override
   Widget build(BuildContext context) {
     final l = preview.line;
     final u = unit ?? (preview.labels.isEmpty ? null : preview.first);
+    final s = width / _w;
+    final qrLeft = _w - _quiet - _qr;
+    final band = qrLeft - _quiet - _m;
+
+    TextStyle ink(double size) =>
+        body(size: size * s, weight: FontWeight.w800, color: Colors.black, height: 1);
+
+    Widget at(double top, double w, Widget child) =>
+        Positioned(left: _m * s, top: top * s, width: w * s, child: child);
+
+    Widget line(String text, double size) =>
+        Text(text, style: ink(size), maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false);
+
     return Container(
       width: width,
+      height: _h * s,
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: Colors.white,
@@ -38,99 +59,33 @@ class LabelCard extends StatelessWidget {
         ],
       ),
       child: Stack(children: [
-        // .lb-strip
+        // A part number gives up size before characters, as on paper.
+        at(5, _w - 2 * _m, FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(l.partNo, style: ink(10.5), maxLines: 1, softWrap: false),
+        )),
+        at(22, band, line(l.partDesc, 8)),
+        // The POUCH quantity — what is in this bag, not what the receipt carried.
+        at(38, band, line('${nf(u?.qty ?? l.grnQty)} ${l.uom}'.trim(), 9)),
+        // The packing date, not the GRN date; a dash until the line has one.
+        at(54, band, line(l.packedOn == null ? '—' : fmtLabelDate(l.packedOn!), 8.5)),
         Positioned(
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: 5,
-          child: DecoratedBox(decoration: BoxDecoration(gradient: Brand.labelStrip)),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(18, 10, 12, 10),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(l.partNo,
-                      style: display(size: 17, color: const Color(0xFF14091F)).copyWith(letterSpacing: -0.3)),
-                  const SizedBox(height: 1),
-                  Text(l.partDesc,
-                      style: body(size: 10, color: const Color(0xFF444444)),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
-                  const SizedBox(height: 6),
-                  /* A Wrap, not a Row: the captions sit on as few lines as the
-                     width allows and flow onto another rather than overflowing,
-                     which is the same rule the PDF follows — it fits three
-                     columns beside the code on the 100×60 stock and two on the
-                     70×40, and wraps the rest onto a second row.
-
-                     Packer and packing date are what the label can know rather
-                     than what it would like to: the sheet is printed before the
-                     line reaches a bench, so the packer is whoever staffs the
-                     tables it has been allocated to, and the date is the
-                     shift's. Neither prints until the line is allocated,
-                     because a blank is honest where a guess is not. */
-                  /* Three fields, and that is the whole of it — the same three
-                     the PDF prints, because what a Supervisor approves on
-                     screen has to be what comes off the printer.
-
-                     It carried five. Each was defensible alone; together they
-                     made a sticker that is read at arm's length, on a bench,
-                     while the bag is being filled, into something to be
-                     studied. The quantity went with them: a pouch holds one
-                     MOQ, and on this GRN 2,560 of 3,930 parts have an MOQ of
-                     1, so the number printed on most pouches was "1". The part
-                     number above says what it is; the QR carries the quantity
-                     for anything that scans it. */
-                  Wrap(spacing: 10, runSpacing: 4, children: [
-                    _Field('INVOICE', l.invoiceNo),
-                    /* The POUCH quantity — what is in this bag, not what the
-                       receipt carried. Pack sizes of 10, 20 and 300 are all on
-                       the current shift, and the remainder pouch of a split
-                       line holds less than the full ones beside it; a storeman
-                       holding one bag has no other way to tell. Not the pack
-                       index: two full pouches of a line are interchangeable. */
-                    _Field('QTY', '${nf(u?.qty ?? l.grnQty)} ${l.uom}'),
-                    _Field('PACKER', l.packer ?? '—'),
-                    _Field('GRN DATE', fmtD(l.grnDate)),
-                  ]),
-                ]),
-              ),
-              const SizedBox(width: 10),
-              _Qr(modules: u?.qr ?? const [], size: 62),
-            ]),
-            const SizedBox(height: 6),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text('SPD PRE-PACK', style: body(size: 11, color: const Color(0xFF555555))),
-            ),
-          ]),
+          left: qrLeft * s,
+          top: (_h - _quiet - _qr) * s,
+          child: _Qr(modules: u?.qr ?? const [], size: _qr * s),
         ),
       ]),
     );
   }
 }
 
-class _Field extends StatelessWidget {
-  const _Field(this.caption, this.value);
-
-  final String caption, value;
-
-  @override
-  Widget build(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(caption,
-              style: body(size: 9.5, color: const Color(0xFF333333)),
-              maxLines: 1, overflow: TextOverflow.ellipsis),
-          Text(value,
-              style: body(size: 11, weight: FontWeight.w700, color: const Color(0xFF111111)),
-              maxLines: 1, overflow: TextOverflow.ellipsis),
-        ],
-      );
+/// 28-Oct-26, as labels.js prints it.
+String fmtLabelDate(String v) {
+  final d = DateTime.tryParse(v);
+  if (d == null) return v;
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return '${d.day.toString().padLeft(2, '0')}-${months[d.month - 1]}-${(d.year % 100).toString().padLeft(2, '0')}';
 }
 
 class _Qr extends StatelessWidget {
@@ -159,7 +114,6 @@ class _QrPainter extends CustomPainter {
     // rather than a flat 0.4: the server sends 25 modules for a short payload
     // but 29 or 33 for a long one, and a flat bleed would dilate the larger
     // code half again as much — a QR that prints too heavy stops scanning.
-    // At 25 modules this is 0.397, which is what it has always drawn.
     final bleed = cell * 0.16;
     final p = Paint()..color = const Color(0xFF111111);
     for (var r = 0; r < n; r++) {
