@@ -1,6 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The tablet talks to the SPD API. Debug builds get this permission from
+         the debug manifest; a release APK without it cannot open a socket, and
+         every request fails as "No connection to the SPD server". -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="spd_frontend"
+        android:label="SPD"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
