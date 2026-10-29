@@ -1,21 +1,24 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../app.dart';
 import '../core/theme.dart';
+import '../data/providers.dart';
 import 'widgets/common.dart';
 
 /// `#splash` — the orbit loader, wordmark and loading bar the prototype shows
 /// for 2.2 s before the login screen fades in.
-class SplashScreen extends StatefulWidget {
+class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
   @override
-  State<SplashScreen> createState() => _SplashScreenState();
+  ConsumerState<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMixin {
+class _SplashScreenState extends ConsumerState<SplashScreen> with TickerProviderStateMixin {
   late final AnimationController _r1 =
       AnimationController(vsync: this, duration: const Duration(milliseconds: 1600))..repeat();
   late final AnimationController _r2 =
@@ -28,9 +31,36 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(milliseconds: 2200), () {
-      if (mounted) context.go('/login');
-    });
+    _open();
+  }
+
+  /* Where the splash goes.
+
+     It always went to /login, because there was never a session to come
+     back to. Now there may be: a kept token is checked against /auth/me
+     while the orbit is spinning, so the two happen at once and a restored
+     session costs nothing on top of the animation the prototype already
+     waits out.
+
+     Both halves are awaited, not raced — landing on the queue a beat early
+     and then having the splash yank it away would be worse than waiting. */
+  Future<void> _open() async {
+    final restored = ref.read(sessionProvider.notifier).restore();
+    final animation = Future<void>.delayed(const Duration(milliseconds: 2200));
+    final role = await restored;
+    await animation;
+    if (!mounted) return;
+
+    if (role == null) {
+      context.go('/login');
+      return;
+    }
+    ref.read(viewRoleProvider.notifier).set(role);
+    if (role == 'member') {
+      final table = ref.read(sessionProvider).user?.tableNo;
+      if (table != null) ref.read(previewTableProvider.notifier).set(table);
+    }
+    context.go(homeFor(role));
   }
 
   @override

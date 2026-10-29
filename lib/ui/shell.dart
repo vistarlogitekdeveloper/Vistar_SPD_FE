@@ -94,9 +94,48 @@ class _AppShellState extends ConsumerState<AppShell> {
   /// landing, the window resizing — does not stack a second copy on top.
   bool _prompting = false;
 
+
+  AppLifecycleListener? _lifecycle;
+  bool _autoStarted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    /* Coming back to a backgrounded app.
+
+       A phone suspends timers when the app is minimised, so the ticker
+       below is asleep exactly while the floor moves on without you. The
+       first thing anyone does on returning is look at the screen and
+       believe it, which is the moment it is most likely to be stale. */
+    _lifecycle = AppLifecycleListener(
+      onResume: () {
+        if (ref.read(sessionProvider).signedIn) {
+          ref.read(liveProvider.notifier).bump();
+        }
+      },
+    );
+  }
+
+
+  /* The console refetches when it writes, and otherwise only on this
+     ticker. A member waiting to be allocated a table is waiting on somebody
+     else's write, so without it their queue never moves — which is what the
+     floor reported. Started once per session rather than left to a pill in
+     the top bar that nobody at a bench has reason to press. */
+  void _autoStartLive() {
+    if (_autoStarted || !ref.read(sessionProvider).signedIn) return;
+    _autoStarted = true;
+    final seconds = ref.read(dashboardProvider).value?.refreshSeconds ?? 60;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(liveProvider.notifier).start(seconds);
+    });
+  }
+
+
   @override
   void dispose() {
     _search.dispose();
+    _lifecycle?.dispose();
     super.dispose();
   }
 
@@ -129,6 +168,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     final narrow = MediaQuery.sizeOf(context).width <= 980;
     final role = ref.watch(viewRoleProvider);
     _maybePromptForOperators();
+    _autoStartLive();
 
     return Scaffold(
       key: _scaffold,
@@ -381,14 +421,35 @@ class _NavRowState extends State<_NavRow> {
 }
 
 /// `#top` — search, shift picker, the live pill, theme, "View as", bell, avatar.
-class _TopBar extends ConsumerWidget {
+class _TopBar extends ConsumerStatefulWidget {
   const _TopBar({required this.search, this.onMenu});
 
   final TextEditingController search;
   final VoidCallback? onMenu;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_TopBar> createState() => _TopBarState();
+}
+
+class _TopBarState extends ConsumerState<_TopBar> {
+  /// Spins the refresh glyph while a manual refresh is in flight, so
+  /// pressing it twice is obviously unnecessary rather than apparently
+  /// necessary. Local to the bar: nothing else has a reason to know.
+  bool _refreshing = false;
+
+  Future<void> _refreshNow() async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
+    ref.read(liveProvider.notifier).bump();
+    /* Long enough for the spin to register as an answer rather than a
+       flicker. The providers refetch on their own clock; this is about the
+       person, not the data. */
+    await Future<void>.delayed(const Duration(milliseconds: 650));
+    if (mounted) setState(() => _refreshing = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final narrow = MediaQuery.sizeOf(context).width <= 980;
     final shifts = ref.watch(shiftsProvider).value ?? const <Shift>[];
     final selected = ref.watch(selectedShiftProvider);
@@ -403,15 +464,15 @@ class _TopBar extends ConsumerWidget {
         border: Border(bottom: BorderSide(color: Brand.line)),
       ),
       child: Row(children: [
-        if (onMenu != null) ...[
-          IconTile(icon: Icons.menu_rounded, onTap: onMenu),
+        if (widget.onMenu != null) ...[
+          IconTile(icon: Icons.menu_rounded, onTap: widget.onMenu),
           const SizedBox(width: 12),
         ],
         if (!narrow) ...[
           SizedBox(
             width: 330,
             child: TextField(
-              controller: search,
+              controller: widget.search,
               style: body(size: 13),
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
@@ -498,6 +559,20 @@ class _TopBar extends ConsumerWidget {
             onTap: () => _showNewShift(context, ref),
           ),
         ],
+        const SizedBox(width: 10),
+
+        /* Refresh, everywhere.
+
+           The ticker below keeps the console current on its own clock, but
+           a clock is not an answer to "is this screen telling me the truth
+           right now" — and on a floor that question gets asked before a
+           decision, not every sixty seconds. */
+        IconTile(
+          icon: Icons.refresh_rounded,
+          tooltip: 'Refresh everything now',
+          spinning: _refreshing,
+          onTap: _refreshing ? null : _refreshNow,
+        ),
         const SizedBox(width: 10),
 
         // .netpill — FR-11.4 auto-refresh, on a toggle

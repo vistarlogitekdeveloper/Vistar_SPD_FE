@@ -50,6 +50,15 @@ class SpdRepository {
     return (token: '${res['token']}', user: SpdUser(_m(res['user'])));
   }
 
+  /// Who the stored token belongs to, and whether it is still good.
+  ///
+  /// The one call that can tell a restored session from an expired one: the
+  /// token is a stateless JWT, so the console cannot check it itself and a
+  /// twelve-hour-old one looks exactly like a fresh one until a request is
+  /// refused. Asked once on startup rather than letting the first screen
+  /// discover it as a 401.
+  Future<SpdUser> me() async => SpdUser(_m((await api.get('/auth/me'))['user']));
+
   Future<void> logout() async {
     try {
       await api.post('/auth/logout');

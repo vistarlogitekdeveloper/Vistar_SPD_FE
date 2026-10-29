@@ -67,6 +67,20 @@ class Session {
 }
 
 class SessionNotifier extends Notifier<Session> {
+  /* Where a kept session lives.
+
+     The session used to be in memory and nowhere else, which is fine on a
+     desktop and wrong on a phone: a backgrounded browser tab is evicted, so
+     coming back to the app was a cold load and another sign-in, mid-shift,
+     every time it was minimised.
+
+     Only the token is kept. The user record is re-read from /auth/me on
+     restore rather than stored, so a name, role or table changed by an
+     Administrator takes effect on the next start instead of being frozen
+     into a device's local storage. The token is the server's own
+     twelve-hour JWT, so a kept session cannot outlive that. */
+  static const _tokenKey = 'spd.auth.token';
+
   @override
   Session build() => const Session();
 
@@ -75,6 +89,7 @@ class SessionNotifier extends Notifier<Session> {
     String? password,
     String? pin,
     String? tableNo,
+    bool remember = true,
   }) async {
     state = state.copyWith(loading: true, clearError: true);
     try {
@@ -82,6 +97,7 @@ class SessionNotifier extends Notifier<Session> {
       final res = await repo.login(
         userId: userId, password: password, pin: pin, tableNo: tableNo);
       ref.read(apiClientProvider).setToken(res.token);
+      await _store(remember ? res.token : null);
       // Usage analytics, before the state change so the screen it leads to is
       // already theirs: a pseudonym of the user id and the role only, never
       // the employee code or name. Fire and forget.
@@ -94,12 +110,61 @@ class SessionNotifier extends Notifier<Session> {
     }
   }
 
+  /// Bring back a kept session, if there is one and the server still honours
+  /// it. Returns the role to land on, or null to show the sign-in screen.
+  ///
+  /// Never throws and never blocks the splash for long: a floor that cannot
+  /// reach the server must still reach the login form, where the failure is
+  /// at least legible.
+  Future<String?> restore() async {
+    final token = ref.read(sharedPrefsProvider)?.getString(_tokenKey);
+    if (token == null || token.isEmpty) return null;
+
+    final api = ref.read(apiClientProvider);
+    api.setToken(token);
+    try {
+      final user = await ref.read(repositoryProvider).me();
+      state = Session(user: user, token: token);
+      return user.roleKey;
+    } on ApiException {
+      /* Expired, revoked, or the account was switched off while the tablet
+         sat on a bench. Clear it rather than leaving a token that will fail
+         again on every screen the member opens. */
+      api.setToken(null);
+      await _store(null);
+      return null;
+    } catch (_) {
+      // Unreachable server: keep the token, show the login screen. The next
+      // start may well succeed, and discarding it would log out a whole
+      // floor over one bad minute of wifi.
+      api.setToken(null);
+      return null;
+    }
+  }
+
   Future<void> signOut() async {
     // Not awaited: sign-out never waits for analytics.
     Telemetry.signedOut();
     await ref.read(repositoryProvider).logout();
     ref.read(apiClientProvider).setToken(null);
+    await _store(null);
     state = const Session();
+  }
+
+  /// Fire-and-forget: storage that refuses to write must never stop someone
+  /// signing in, so the session simply is not kept.
+  Future<void> _store(String? token) async {
+    final prefs = ref.read(sharedPrefsProvider);
+    if (prefs == null) return;
+    try {
+      if (token == null) {
+        await prefs.remove(_tokenKey);
+      } else {
+        await prefs.setString(_tokenKey, token);
+      }
+    } catch (_) {
+      /* nothing to do: the session is simply not kept */
+    }
   }
 }
 
@@ -205,14 +270,35 @@ class LiveNotifier extends Notifier<bool> {
   }
 
   void toggle(int seconds) {
-    _timer?.cancel();
     if (state) {
-      state = false;
-      _timer = null;
-      return;
+      stop();
+    } else {
+      start(seconds);
     }
+  }
+
+  /* Started rather than toggled.
+
+     The floor reported that a table allocated by a Supervisor did not reach
+     the member until they signed out and back in. It never would have: the
+     console only refetches when something it did caused a write, or when
+     this ticker is running — and the ticker was off by default behind a
+     pill in the top bar that nobody at a bench has reason to find.
+
+     A member cannot cause the write they are waiting for. Somebody else
+     does, at another screen, and the only honest way for their queue to
+     show it is to ask again. See AppShell, which starts this for them. */
+  void start(int seconds) {
+    if (state) return;
+    _timer?.cancel();
     state = true;
     _timer = Timer.periodic(Duration(seconds: seconds.clamp(5, 3600)), (_) => bump());
+  }
+
+  void stop() {
+    _timer?.cancel();
+    _timer = null;
+    state = false;
   }
 
   /// Forces every shift-scoped provider to refetch.

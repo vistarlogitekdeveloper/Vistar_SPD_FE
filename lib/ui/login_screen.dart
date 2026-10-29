@@ -17,23 +17,22 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
-  /* The chips choose a role. They used to carry a demo account each
-     (sup.rmenon, adm.itcell, mgt.avohra) and fill the password with the one
-     published in this repository, which was convenient against a seeded
-     database and wrong everywhere else: on a real deployment those accounts do
-     not exist, so the form arrived pre-filled with credentials that could only
-     ever be refused — and shipped a known password as the default value in a
-     login box reachable from the internet. */
-  static const _roles = [
-    ('supervisor', 'Supervisor', 'GRN, labels, review, MIS'),
-    ('member', 'Table Member', 'Start & submit packing'),
-    ('admin', 'Administrator', 'Users, tables, config'),
-    ('viewer', 'Management', 'Dashboard & MIS'),
-  ];
+  /* The four role chips are gone.
+
+     They never decided anything. The account decides the role — the server
+     reads it off spd.users and signs it into the token — so the chip was a
+     claim the server ignored, and picking the wrong one changed nothing
+     except which word the password field was labelled with. It also cleared
+     both boxes on every tap, which on a shop-floor tablet meant a mis-tap
+     cost you what you had already typed.
+
+     What is left is what the server actually asks for: who you are and your
+     secret. */
 
   final _user = TextEditingController();
   final _pass = TextEditingController();
-  String _role = 'supervisor';
+  bool _show = false;
+  bool _remember = true;
   bool _busy = false;
   String? _error;
 
@@ -45,14 +44,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _signIn() async {
-    final isMember = _role == 'member';
     final id = _user.text.trim();
     if (id.isEmpty) {
       setState(() => _error = 'Enter your user ID to continue');
       return;
     }
     if (_pass.text.isEmpty) {
-      setState(() => _error = isMember ? 'Enter your PIN to continue' : 'Enter your password to continue');
+      setState(() => _error = 'Enter your password or PIN to continue');
       return;
     }
 
@@ -61,10 +59,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _error = null;
     });
 
-    // A Member's credential may be a PIN or a password, and the shop floor uses
-    // whichever it was given — so the shorter, all-digit entry is offered as a
-    // PIN and anything else as a password.
-    final looksLikePin = isMember && _pass.text.length <= 6 && int.tryParse(_pass.text) != null;
+    /* A short all-digit secret could be either a Member’s PIN or somebody
+       else's numeric password, and with the role chips gone the console no
+       longer has even a claim about which. So it sends BOTH fields: the
+       server uses the PIN only for a Member and the password for everyone
+       else, which is the one place that actually knows the role.
+
+       The fallback below stays for the Member whose secret happens to be a
+       short numeric PASSWORD — the server would try it as a PIN, find no
+       pin_hash, and refuse something that is in fact correct. */
+    final looksLikePin = _pass.text.length <= 6 && int.tryParse(_pass.text) != null;
     /* No table is sent. The console used to ask for one here, from a picker
        filled by a pre-authentication call that listed the whole floor to
        anybody who loaded the page — and a member is on exactly one table in a
@@ -73,13 +77,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
        is what builds before the picker always relied on. */
     var ok = await ref.read(sessionProvider.notifier).signIn(
           userId: id,
-          password: looksLikePin ? null : _pass.text,
+          password: _pass.text,
           pin: looksLikePin ? _pass.text : null,
+          remember: _remember,
         );
-    if (!ok && isMember && looksLikePin) {
-      // Fall back to treating it as a password rather than telling a member
-      // their PIN is wrong when the account simply has no PIN set.
-      ok = await ref.read(sessionProvider.notifier).signIn(userId: id, password: _pass.text);
+    if (!ok && looksLikePin) {
+      // The Member whose secret is a short numeric password rather than a
+      // PIN: tried as a PIN it is refused, and it is not wrong.
+      ok = await ref.read(sessionProvider.notifier).signIn(
+            userId: id, password: _pass.text, remember: _remember);
     }
 
     if (!mounted) return;
@@ -124,7 +130,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Widget _form(BuildContext context) {
-    final isMember = _role == 'member';
     return Container(
       color: Brand.bg2,
       child: Stack(children: [
@@ -165,40 +170,48 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                 ),
                 Field(
-                  label: isMember ? 'PIN or password' : 'Password',
+                  label: 'Password or PIN',
+                  bottom: 10,
                   child: TextField(
                     controller: _pass,
-                    obscureText: true,
+                    obscureText: !_show,
                     style: body(size: 14),
                     onSubmitted: (_) => _signIn(),
+                    decoration: InputDecoration(
+                      /* A four-digit PIN typed on a tablet, in a stores
+                         bay, with gloves on. Being unable to see what you
+                         typed is what turns one fat-fingered digit into
+                         three failed attempts and a locked account — the
+                         account limiter stops at thirty. */
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _show ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                          size: 18,
+                          color: Brand.txt3,
+                        ),
+                        tooltip: _show ? 'Hide' : 'Show',
+                        onPressed: () => setState(() => _show = !_show),
+                      ),
+                    ),
                   ),
                 ),
 
-                Field(
-                  label: 'Sign in as',
-                  bottom: 9,
-                  child: LayoutBuilder(builder: (context, c) {
-                    final w = (c.maxWidth - 10) / 2;
-                    return Wrap(spacing: 10, runSpacing: 10, children: [
-                      for (final (key, title, sub) in _roles)
-                        SizedBox(width: w, child: _RoleChip(
-                          title: title,
-                          subtitle: sub,
-                          selected: _role == key,
-                          onTap: () => setState(() {
-                            _role = key;
-                            _error = null;
-                            // Cleared, not filled: a different role is a
-                            // different account, and carrying one ID into the
-                            // next sign-in is how the wrong one gets used.
-                            _user.clear();
-                            _pass.clear();
-                          }),
-                        )),
-                    ]);
-                  }),
+                /* Stay signed in across a minimise.
+
+                   On a phone the browser evicts a backgrounded page, and the
+                   session lived only in memory — so coming back to the app
+                   was a fresh load and another sign-in, mid-shift, every
+                   time. On by default because that is the behaviour anyone
+                   expects; a shared bench tablet that should forget its
+                   operator turns it off here.
+
+                   What is kept is the token, which the server already
+                   expires after twelve hours. Signing out clears it. */
+                _RememberBox(
+                  value: _remember,
+                  onChanged: (v) => setState(() => _remember = v),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 14),
 
                 /* Two pickers used to stand here: a roster a Table Member
                    found their own name in, and the table they were on today.
@@ -244,46 +257,46 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 }
 
-/// `.role-chip`
-class _RoleChip extends StatelessWidget {
-  const _RoleChip({required this.title, required this.subtitle, required this.selected, required this.onTap});
+/// "Keep me signed in" — a checkbox and its reason, in the prototype’s hand.
+class _RememberBox extends StatelessWidget {
+  const _RememberBox({required this.value, required this.onChanged});
 
-  final String title, subtitle;
-  final bool selected;
-  final VoidCallback onTap;
+  final bool value;
+  final ValueChanged<bool> onChanged;
 
   @override
-  Widget build(BuildContext context) {
-    final ink = selected ? Colors.white : Brand.txt;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(13),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-          decoration: BoxDecoration(
-            gradient: selected ? Brand.ribbon : null,
-            color: selected ? null : Brand.surface,
-            border: Border.all(color: selected ? Colors.transparent : Brand.line),
-            borderRadius: BorderRadius.circular(13),
-            boxShadow: selected
-                ? [BoxShadow(color: Brand.pink.withValues(alpha: 0.6), blurRadius: 34, spreadRadius: -16, offset: const Offset(0, 14))]
-                : null,
+  Widget build(BuildContext context) => Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => onChanged(!value),
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Row(children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: Checkbox(
+                  value: value,
+                  onChanged: (v) => onChanged(v ?? false),
+                  activeColor: Brand.pink,
+                  side: BorderSide(color: Brand.fieldLine, width: 1.4),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Keep me signed in on this device',
+                  style: body(size: 13, color: Brand.txt2),
+                ),
+              ),
+            ]),
           ),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: body(size: 13.5, weight: FontWeight.w800, color: ink)),
-            const SizedBox(height: 3),
-            Text(
-              subtitle,
-              style: body(size: 11.5, color: selected ? Colors.white.withValues(alpha: 0.85) : Brand.txt3),
-              maxLines: 2,
-            ),
-          ]),
         ),
-      ),
-    );
-  }
+      );
 }
 
 /// `#login .art` — the brand panel with the headline and the three stats.

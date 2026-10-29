@@ -591,13 +591,26 @@ class GhostButton extends StatelessWidget {
 
 /// `.iconbtn` — the square icon button used in the top bar.
 class IconTile extends StatelessWidget {
-  const IconTile({super.key, required this.icon, this.onTap, this.tooltip, this.dot = false, this.size = 36});
+  const IconTile({
+    super.key,
+    required this.icon,
+    this.onTap,
+    this.tooltip,
+    this.dot = false,
+    this.size = 36,
+    this.spinning = false,
+  });
 
   final IconData icon;
   final VoidCallback? onTap;
   final String? tooltip;
   final bool dot;
   final double size;
+
+  /// Turns the glyph while something is in flight. A refresh that returns
+  /// in 80ms looks exactly like a button that did nothing, and the next
+  /// thing anybody does is press it again.
+  final bool spinning;
 
   @override
   Widget build(BuildContext context) {
@@ -617,7 +630,9 @@ class IconTile extends StatelessWidget {
                   border: Border.all(color: Brand.fieldLine),
                   borderRadius: BorderRadius.circular(11),
                 ),
-                child: Icon(icon, size: 17, color: Brand.txt2),
+                child: spinning
+                    ? const _SpinningIcon()
+                    : Icon(icon, size: 17, color: Brand.txt2),
               ),
             ),
             if (dot)
@@ -1046,6 +1061,31 @@ String _plainText(Widget w) {
   if (w is ProxyWidget) return _plainText(w.child);
   if (w is MultiChildRenderObjectWidget) return w.children.map(_plainText).join(' ');
   return '';
+}
+
+/// The turning glyph an [IconTile] shows while it is working.
+class _SpinningIcon extends StatefulWidget {
+  const _SpinningIcon();
+
+  @override
+  State<_SpinningIcon> createState() => _SpinningIconState();
+}
+
+class _SpinningIconState extends State<_SpinningIcon> with SingleTickerProviderStateMixin {
+  late final AnimationController _c =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => RotationTransition(
+        turns: _c,
+        child: Icon(Icons.refresh_rounded, size: 17, color: Brand.pink),
+      );
 }
 
 /// `.filterbar` — a bordered row of filter fields with a reset button.
