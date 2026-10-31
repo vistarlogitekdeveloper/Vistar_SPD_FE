@@ -209,8 +209,17 @@ class SpdRepository {
   Future<List<LabelPrint>> labelLog(String shiftId) async =>
       _list((await api.get('/labels/log', query: {'shiftId': shiftId}))['prints'], LabelPrint.new);
 
-  Future<bool> printLabel({required String lineId, int copies = 1, String reason = ''}) async {
-    final res = await api.post('/labels/$lineId/print', body: {'copies': copies, 'reason': reason});
+  /// [extra] is spare stickers added to this press, not a second press:
+  /// one row goes into the print log either way, and the audit line says
+  /// how many spares came off with it.
+  Future<bool> printLabel({
+    required String lineId,
+    int copies = 1,
+    int extra = 0,
+    String reason = '',
+  }) async {
+    final res = await api.post('/labels/$lineId/print',
+        body: {'copies': copies, 'extra': extra, 'reason': reason});
     return res['reprint'] == true;
   }
 
@@ -221,22 +230,23 @@ class SpdRepository {
   /// shift runs to tens of thousands of labels and the server refuses a sheet
   /// that large — an invoice is both what prints and what gets carried to the
   /// bench.
-  /// [copies] repeats the whole run — the same stickers again, for a pouch
-  /// labelled on two faces or a spare against a torn one. The server clamps
-  /// it and still refuses the sheet if the product exceeds its ceiling.
+  /// [extra] adds spare stickers after the run, for the torn and the
+  /// smudged — the line still prints one label per pouch, with the spares
+  /// appended. The server clamps it and still refuses the sheet if run
+  /// plus spares exceeds its ceiling.
   Future<Uint8List> labelSheetPdf({
     String? shiftId,
     String? lineId,
     String invoice = '',
     String table = '',
-    int copies = 1,
+    int extra = 0,
   }) =>
       api.download('/labels/sheet.pdf', query: {
         'shiftId': shiftId,
         'lineId': lineId,
         if (invoice.isNotEmpty) 'invoice': invoice,
         if (table.isNotEmpty) 'table': table,
-        if (copies != 1) 'copies': '$copies',
+        if (extra > 0) 'extra': '$extra',
       });
 
   /* ------------------------------------------------------ allocations --- */

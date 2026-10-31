@@ -300,15 +300,15 @@ class _LabelTile extends ConsumerWidget {
 /// is being checked (does the label say the right thing) is still checkable.
 const int _kCardsShown = 12;
 
-/// The copies box as a number, defaulting to one.
+/// The spares box as a number, defaulting to none.
 ///
-/// An empty or nonsense box means one rather than nothing: the field exists
-/// to ask for more than one, so the absence of an answer is the ordinary
-/// case. The server clamps the upper end — it is the side that knows what a
-/// sheet costs to render.
-int _copiesOf(String s) {
+/// An empty or nonsense box means no spares: the line prints one label per
+/// pouch whatever is typed here, and nothing extra is the ordinary case.
+/// The server clamps the upper end — it is the side that knows what a sheet
+/// costs to render.
+int _extraOf(String s) {
   final n = int.tryParse(s.trim());
-  return n == null || n < 1 ? 1 : n;
+  return n == null || n < 0 ? 0 : n;
 }
 
 /// "140 pouches of 25, and one of 12" rather than "25 + 25 + 25 + …".
@@ -346,13 +346,15 @@ Future<void> showLabelDialog(BuildContext context, WidgetRef ref, String lineId)
     'Print quality unreadable',
   ];
   String? reason;
-  /* FR-3.3 — how many times to print this run.
+  /* FR-3.3 — spare stickers, for the torn and the smudged.
 
-     Not a quantity of pieces and not a number of pouches: both of those
-     are facts about the GRN line that the MOQ has already decided. This
-     is how many times the same set of stickers comes out, which is the
-     thing the floor was going back to the printer dialog for. */
-  final copies = TextEditingController(text: '1');
+     Not a count of copies of the run. The line needs exactly one label
+     per pouch — that is what the MOQ decided — so a hundred pouches with
+     three stickers ruined wants 103 labels, not 200. Asking "how many
+     copies" would make the common case (a few more) the hard one.
+
+     Blank by default, because no spares is what most presses want. */
+  final extra = TextEditingController();
 
   await showSpdModal<void>(
     context,
@@ -371,18 +373,19 @@ Future<void> showLabelDialog(BuildContext context, WidgetRef ref, String lineId)
       /* Above the stickers, not below them. A line packed one piece to a pouch
          is hundreds of cards, and a control placed after them is a control
          nobody scrolls to — the same reason the tile preview stopped drawing
-         every label. Copies is the thing being decided here; the cards are
-         what is being checked. */
+         every label. The spare count is the thing being decided here; the
+         cards are what is being checked. */
       Field(
-        label: 'Copies',
-        hint: 'How many times to print this set of ${nf(preview.labels.length)} label(s)',
+        label: 'Extra labels',
+        hint: 'Spares printed after the ${nf(preview.labels.length)} this line needs — '
+            'for a sticker torn, smudged or stuck on crooked',
         bottom: 0,
         child: TextField(
-          controller: copies,
+          controller: extra,
           keyboardType: TextInputType.number,
           inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           style: mono(size: 14),
-          decoration: const InputDecoration(hintText: '1'),
+          decoration: const InputDecoration(hintText: '0'),
         ),
       ),
       const SizedBox(height: 18),
@@ -431,7 +434,7 @@ Future<void> showLabelDialog(BuildContext context, WidgetRef ref, String lineId)
         onPressed: () async {
           final bytes = await ref
               .read(repositoryProvider)
-              .labelSheetPdf(lineId: lineId, copies: _copiesOf(copies.text));
+              .labelSheetPdf(lineId: lineId, extra: _extraOf(extra.text));
           await saveBytes(
             filename: 'SPD_LABEL_${preview.line.partNo}.pdf',
             bytes: bytes,
@@ -448,16 +451,16 @@ Future<void> showLabelDialog(BuildContext context, WidgetRef ref, String lineId)
             Toast.bad(context, 'Reason required', 'A reprint must be logged with a reason (BR-09).');
             return;
           }
-          final n = _copiesOf(copies.text);
+          final n = _extraOf(extra.text);
           try {
             final wasReprint = await ref.read(repositoryProvider).printLabel(
                   lineId: lineId,
-                  copies: n,
+                  extra: n,
                   reason: reason ?? '',
                 );
             final bytes = await ref
                 .read(repositoryProvider)
-                .labelSheetPdf(lineId: lineId, copies: n);
+                .labelSheetPdf(lineId: lineId, extra: n);
             if (context.mounted) Navigator.pop(context);
             if (context.mounted) {
               await showPdfPreviewDialog(
