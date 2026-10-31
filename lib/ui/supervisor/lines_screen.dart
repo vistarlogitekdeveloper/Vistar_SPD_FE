@@ -155,6 +155,7 @@ class _LinesScreenState extends ConsumerState<LinesScreen> {
               SpdCol('Packed', right: true, width: 92),
               SpdCol('Pending', right: true, width: 92),
               SpdCol('Status', width: 128),
+              SpdCol('Adjusted', right: true, width: 100),
               SpdCol('', right: true, width: 272),
             ],
             rows: [
@@ -214,6 +215,20 @@ class _LinesScreenState extends ConsumerState<LinesScreen> {
                       monoCell(nf(l.packed)),
                       monoCell(nf(l.pending), color: l.pending > 0 ? Brand.warn : Brand.ok),
                       StatusPill(l.status),
+                      /* BR-01 — what was written off, beside the status it
+                         produced. A line reading Completed with nothing
+                         packed is not a mystery once this column says 96
+                         were written off; without it the two facts live on
+                         different screens and the status looks wrong.
+
+                         A dash, not a zero: most lines have no write-off at
+                         all, and a column of noughts would bury the handful
+                         that do. */
+                      l.hasWriteOff
+                          ? monoCell(nf(l.adjusted), color: Brand.warn)
+                          : Text('—',
+                              style: mono(size: 13, color: Brand.txt3),
+                              textAlign: TextAlign.right),
                       Row(mainAxisSize: MainAxisSize.min, children: [
                         GhostButton(
                           label: 'Label',

@@ -221,17 +221,22 @@ class SpdRepository {
   /// shift runs to tens of thousands of labels and the server refuses a sheet
   /// that large — an invoice is both what prints and what gets carried to the
   /// bench.
+  /// [copies] repeats the whole run — the same stickers again, for a pouch
+  /// labelled on two faces or a spare against a torn one. The server clamps
+  /// it and still refuses the sheet if the product exceeds its ceiling.
   Future<Uint8List> labelSheetPdf({
     String? shiftId,
     String? lineId,
     String invoice = '',
     String table = '',
+    int copies = 1,
   }) =>
       api.download('/labels/sheet.pdf', query: {
         'shiftId': shiftId,
         'lineId': lineId,
         if (invoice.isNotEmpty) 'invoice': invoice,
         if (table.isNotEmpty) 'table': table,
+        if (copies != 1) 'copies': '$copies',
       });
 
   /* ------------------------------------------------------ allocations --- */

@@ -29,6 +29,9 @@ dependencies:
 
   # FR-3.2 — sending the ID label to a connected label printer
   printing: ^5.14.3
+  # PdfPageFormat, to tell the preview what stock the sheet is already on.
+  # printing pulls this in anyway; it is named here because we import it.
+  pdf: ^3.12.0
 
   # presentation
   google_fonts: ^8.1.0

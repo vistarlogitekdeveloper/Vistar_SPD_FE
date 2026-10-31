@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api.dart';
@@ -290,6 +291,43 @@ class _LabelTile extends ConsumerWidget {
   }
 }
 
+/// How many sticker cards the print dialog draws before it starts counting.
+///
+/// Twelve rather than all of them, for the reason the tile preview stops at
+/// three: each card carries a QR drawn module by module, the dialog's column
+/// virtualises nothing, and a line of 484 pieces at an MOQ of 1 is 484 of them
+/// — which is a frozen screen, not a preview. Twelve fills the dialog, so what
+/// is being checked (does the label say the right thing) is still checkable.
+const int _kCardsShown = 12;
+
+/// The copies box as a number, defaulting to one.
+///
+/// An empty or nonsense box means one rather than nothing: the field exists
+/// to ask for more than one, so the absence of an answer is the ordinary
+/// case. The server clamps the upper end — it is the side that knows what a
+/// sheet costs to render.
+int _copiesOf(String s) {
+  final n = int.tryParse(s.trim());
+  return n == null || n < 1 ? 1 : n;
+}
+
+/// "140 pouches of 25, and one of 12" rather than "25 + 25 + 25 + …".
+///
+/// The split used to be spelled out term by term, which is readable for the
+/// 300-and-50 case it was written for and is a hundred copies of "1 + " for
+/// a line packed one piece to a pouch — the common case once the master
+/// began supplying an MOQ of 1. What the Supervisor needs to see is that the
+/// line does not print one label, and how the remainder fell.
+String _splitBlurb(List<LabelUnit> labels) {
+  if (labels.isEmpty) return 'no labels';
+  final full = labels.first.qty;
+  final tail = labels.last.qty;
+  final n = labels.length;
+  if (n == 1) return '${nf(full)} in one pouch';
+  if (tail == full) return '$n pouches of ${nf(full)}';
+  return '${n - 1} pouches of ${nf(full)} and one of ${nf(tail)}';
+}
+
 /// UC-02 — the print dialog. The server decides whether this is a reprint, so
 /// the reason requirement of BR-09 cannot be sidestepped by the client.
 Future<void> showLabelDialog(BuildContext context, WidgetRef ref, String lineId) async {
@@ -308,6 +346,13 @@ Future<void> showLabelDialog(BuildContext context, WidgetRef ref, String lineId)
     'Print quality unreadable',
   ];
   String? reason;
+  /* FR-3.3 — how many times to print this run.
+
+     Not a quantity of pieces and not a number of pouches: both of those
+     are facts about the GRN line that the MOQ has already decided. This
+     is how many times the same set of stickers comes out, which is the
+     thing the floor was going back to the printer dialog for. */
+  final copies = TextEditingController(text: '1');
 
   await showSpdModal<void>(
     context,
@@ -317,21 +362,50 @@ Future<void> showLabelDialog(BuildContext context, WidgetRef ref, String lineId)
       if (preview.labels.length > 1) ...[
         AlertBox(
           tone: AlertTone.info,
-          title: 'This line prints ${preview.labels.length} labels (FR-3.5)',
+          title: 'This line prints ${nf(preview.labels.length)} labels (FR-3.5)',
           message: 'MOQ ${nf(preview.line.moq ?? 0)} against a GRN quantity of '
-              '${nf(preview.line.grnQty)} ${preview.line.uom} — '
-              '${preview.labels.map((u) => nf(u.qty)).join(' + ')}.',
+              '${nf(preview.line.grnQty)} ${preview.line.uom} — ${_splitBlurb(preview.labels)}.',
         ),
         const SizedBox(height: 14),
       ],
+      /* Above the stickers, not below them. A line packed one piece to a pouch
+         is hundreds of cards, and a control placed after them is a control
+         nobody scrolls to — the same reason the tile preview stopped drawing
+         every label. Copies is the thing being decided here; the cards are
+         what is being checked. */
+      Field(
+        label: 'Copies',
+        hint: 'How many times to print this set of ${nf(preview.labels.length)} label(s)',
+        bottom: 0,
+        child: TextField(
+          controller: copies,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          style: mono(size: 14),
+          decoration: const InputDecoration(hintText: '1'),
+        ),
+      ),
+      const SizedBox(height: 18),
       Center(
         child: Wrap(
           spacing: 12,
           runSpacing: 12,
           alignment: WrapAlignment.center,
-          children: [for (final u in preview.labels) LabelCard(preview: preview, unit: u)],
+          children: [
+            for (final u in preview.labels.take(_kCardsShown))
+              LabelCard(preview: preview, unit: u),
+          ],
         ),
       ),
+      if (preview.labels.length > _kCardsShown) ...[
+        const SizedBox(height: 10),
+        Center(
+          child: Text(
+            '+ ${nf(preview.labels.length - _kCardsShown)} more label(s) print for this line.',
+            style: body(size: 12, color: Brand.txt3),
+          ),
+        ),
+      ],
       if (preview.alreadyPrinted) ...[
         const SizedBox(height: 18),
         Field(
@@ -355,7 +429,9 @@ Future<void> showLabelDialog(BuildContext context, WidgetRef ref, String lineId)
         label: 'Save PDF',
         icon: Icons.download_rounded,
         onPressed: () async {
-          final bytes = await ref.read(repositoryProvider).labelSheetPdf(lineId: lineId);
+          final bytes = await ref
+              .read(repositoryProvider)
+              .labelSheetPdf(lineId: lineId, copies: _copiesOf(copies.text));
           await saveBytes(
             filename: 'SPD_LABEL_${preview.line.partNo}.pdf',
             bytes: bytes,
@@ -372,12 +448,16 @@ Future<void> showLabelDialog(BuildContext context, WidgetRef ref, String lineId)
             Toast.bad(context, 'Reason required', 'A reprint must be logged with a reason (BR-09).');
             return;
           }
+          final n = _copiesOf(copies.text);
           try {
             final wasReprint = await ref.read(repositoryProvider).printLabel(
                   lineId: lineId,
+                  copies: n,
                   reason: reason ?? '',
                 );
-            final bytes = await ref.read(repositoryProvider).labelSheetPdf(lineId: lineId);
+            final bytes = await ref
+                .read(repositoryProvider)
+                .labelSheetPdf(lineId: lineId, copies: n);
             if (context.mounted) Navigator.pop(context);
             if (context.mounted) {
               await showPdfPreviewDialog(

@@ -226,6 +226,7 @@ class _MisTable extends StatelessWidget {
           SpdCol('Pouches', right: true, width: 90),
           SpdCol('Boxes', right: true, width: 82),
           SpdCol('Tables', width: 106),
+          SpdCol('Adjustment reason', width: 220, wrap: true),
           SpdCol('Status', width: 126),
         ],
         rows: [
@@ -240,6 +241,18 @@ class _MisTable extends StatelessWidget {
               monoCell('${r.pouches}'),
               monoCell('${r.boxes}'),
               monoCell(r.tables.isEmpty ? '—' : r.tables.join(', ')),
+              /* BR-01 — the reason sits immediately before the status it
+                 produced, because it is the explanation of it: a line
+                 reading Completed with 96 of 500 packed is only readable
+                 next to "short shipped". The MIS is the sheet that gets
+                 read away from the floor, where there is nobody to ask.
+
+                 Blank, not a dash, for the lines that were never adjusted
+                 — which is nearly all of them, and a column of dashes
+                 would bury the handful that carry a reason. */
+              r.adjustmentReason.isEmpty
+                  ? const SizedBox.shrink()
+                  : wrapCell('${nf(r.adjusted)} written off · ${r.adjustmentReason}'),
               StatusPill(r.status),
             ]),
         ],

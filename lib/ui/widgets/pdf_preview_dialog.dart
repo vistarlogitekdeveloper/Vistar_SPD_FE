@@ -1,10 +1,20 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 
 import '../../core/downloads.dart';
 import '../../core/theme.dart';
 import 'common.dart';
+
+/// FR-3.2 — the label stock every SPD sheet is laid out on.
+///
+/// 100 × 25 mm, two 50 × 25 mm stickers to a row, with no margin: the same
+/// geometry services/labels.js builds the pages at (PAGE = [STICKER_W * 2,
+/// STICKER_H], 141.73 × 70.87 pt). The two must agree — a preview told one
+/// paper size and handed bytes of another is exactly the mismatch below.
+const PdfPageFormat kLabelStock =
+    PdfPageFormat(141.73 * 2, 70.87, marginAll: 0);
 
 /// FR-3.2 — shows a generated PDF **in the app** before it reaches a printer.
 ///
@@ -15,12 +25,18 @@ import 'common.dart';
 /// offers the printer.
 ///
 /// Returns true if the sheet was sent to a printer.
+///
+/// [pageFormat] is the stock the PDF is already laid out on. It is not a
+/// choice offered to the user — it is what the bytes are — and giving it is
+/// the whole of why the print dialog now defaults sensibly. See kLabelStock.
 Future<bool> showPdfPreviewDialog(
   BuildContext context, {
   required String title,
   required String subtitle,
   required String fileName,
   required Uint8List bytes,
+  PdfPageFormat pageFormat = kLabelStock,
+  String formatLabel = '100 × 25 mm label',
 }) async {
   var printed = false;
 
@@ -92,10 +108,27 @@ Future<bool> showPdfPreviewDialog(
                   borderRadius: BorderRadius.circular(Brand.r),
                 ),
                 child: PdfPreview(
-                  // The bytes are already built; the requested page format is
-                  // irrelevant because the label stock is fixed by the template.
+                  // The bytes are already built; the format below does not
+                  // re-lay them out, it declares what they are.
                   build: (_) => bytes,
                   pdfFileName: fileName,
+                  /* The paper the sheet is actually on.
+
+                     PdfPreview falls back to A4 when it is told nothing, and
+                     it was told nothing — so a 100 × 25 mm label sheet was
+                     previewed, and handed to the operating system’s print
+                     dialog, as A4. That is why nothing defaulted sensibly:
+                     every orientation and fit-to-page guess the dialog made
+                     was a guess about the wrong paper, and a label printer
+                     fed an A4 job scales the artwork to a size no stock
+                     matches. Landscape and "fit" now follow from the real
+                     dimensions instead of being asked for by hand.
+
+                     Pinned rather than offered: pageFormats holds exactly one
+                     entry, so there is nothing for the format picker to change
+                     the sheet to. */
+                  initialPageFormat: pageFormat,
+                  pageFormats: {formatLabel: pageFormat},
                   canChangePageFormat: false,
                   canChangeOrientation: false,
                   canDebug: false,

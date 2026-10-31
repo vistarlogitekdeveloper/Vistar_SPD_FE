@@ -357,6 +357,14 @@ class MisRow {
   int get boxes => intOf(raw['boxes']);
   int get lines => intOf(raw['lines']);
   int get txns => intOf(raw['txns']);
+
+  num get adjusted => numOf(raw['adjusted']);
+
+  /// BR-01 — why a line is short, in the words the Supervisor chose when
+  /// they wrote the remainder off. Several write-offs on one line come
+  /// back joined with '; '.
+  String get adjustmentReason => '${raw['adjustment_reason'] ?? ''}';
+
   String get status => '${raw['status'] ?? ''}';
   List<String> get tables => (raw['tables'] as List?)?.map((e) => '$e').toList() ?? const [];
 }
